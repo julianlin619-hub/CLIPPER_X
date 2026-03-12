@@ -128,7 +128,7 @@ export default function PromptStep({
     const res = await fetch("/api/clip-preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transcript, prompt, speakerMap }),
+      body: JSON.stringify({ transcript, prompt, speakerMap, versionIdx }),
     });
 
     if (!res.ok || !res.body) {

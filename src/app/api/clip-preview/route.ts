@@ -22,11 +22,19 @@ Rules:
 - TRIM text must use ONLY words from the original utterance (no new words)
 - No commentary, no headers, no explanations — ONLY decision lines`;
 
+const VERSION_FOCUS: Record<number, string> = {
+  1: `## VERSION FOCUS (B — Caller/Guest Arc)
+The HOOK stays exactly as chosen. For the MEAT and PAYOFF: center the caller or guest's experience — their realization, admission, shift, or vulnerability — NOT the host's wisdom or lesson. Build toward what the guest says or reveals, not what the host teaches. If the host's insight is the natural ending, find the guest's moment instead.`,
+  2: `## VERSION FOCUS (C — Tension / Counterintuitive angle)
+The HOOK stays exactly as chosen. For the MEAT and PAYOFF: find the moment of friction, surprise, or contradiction in this transcript — something that challenges the obvious takeaway or that most clips would skip. Build toward what's uncomfortable, unexpected, or counterintuitive. Avoid both the host's primary lesson and the guest's emotional arc.`,
+};
+
 export async function POST(req: NextRequest) {
-  const { transcript, prompt, speakerMap } = await req.json() as {
+  const { transcript, prompt, speakerMap, versionIdx } = await req.json() as {
     transcript: TranscriptEntry[];
     prompt: string;
     speakerMap?: Record<string, string>; // JSON keys are always strings
+    versionIdx?: number;
   };
 
   if (!transcript || !prompt) {
@@ -37,7 +45,9 @@ export async function POST(req: NextRequest) {
   }
 
   // Append output format instructions if the prompt doesn't already define them
-  const systemPrompt = prompt.includes("OUTPUT FORMAT") ? prompt : prompt + DECISION_FORMAT;
+  const basePrompt = prompt.includes("OUTPUT FORMAT") ? prompt : prompt + DECISION_FORMAT;
+  const versionInstruction = VERSION_FOCUS[versionIdx ?? 0];
+  const systemPrompt = versionInstruction ? basePrompt + "\n\n" + versionInstruction : basePrompt;
 
   // Build numbered utterance list (same format the DEFAULT_EDIT_PROMPT expects)
   // JSON serialization turns numeric keys to strings, so we re-parse them.
