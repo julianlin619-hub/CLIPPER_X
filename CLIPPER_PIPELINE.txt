@@ -1,0 +1,441 @@
+═══════════════════════════════════════════════════════════════════════════════
+CLIPPER — COMPLETE PIPELINE DOCUMENTATION
+Generated from source: 2026-03-08
+═══════════════════════════════════════════════════════════════════════════════
+
+OVERVIEW
+────────
+CLIPPER is a Next.js app (src/) with Python helper scripts (scripts/).
+There are NO intermediate files written to disk during normal use — all
+state lives in React (in-memory) until the user clicks an export button.
+The only disk writes are the final FCPXML output (via patch script) and
+a temp file for the edited FCPXML in /tmp (cleaned up immediately).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 1 — FILE SELECTION  (UI: "1. Transcribe" tab)
+═══════════════════════════════════════════════════════════════════════════════
+
+Component:  src/components/file-browser.tsx
+State held: src/app/page.tsx → filePath, fileName, fcpxmlPath
+
+User selects TWO files:
+  1. A VIDEO file (MP4/MOV/etc.) — the camera feed that will be transcribed.
+     This is typically a proxy or a render of the multicam sequence.
+  2. A FCPXML file (multicam master) — selected separately via a second
+     file picker. Stored in state as fcpxmlPath.
+     This file is never read client-side; its path is passed to the
+     patch script later.
+
+API called:  GET /api/browse?dir=<path>
+             → src/app/api/browse/route.ts
+             → reads filesystem, returns directory listing (no writes)
+
+After selection → triggers transcription automatically.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 2 — TRANSCRIPTION  (UI: still "1. Transcribe" tab)
+═══════════════════════════════════════════════════════════════════════════════
+
+Component:  src/components/file-browser.tsx (handleTranscribe)
+            → src/components/transcribe-step.tsx
+
+API called:  POST /api/transcribe  { filePath }
+             → src/app/api/transcribe/route.ts
+             → spawns: python3 scripts/transcribe.py <filePath>
+
+scripts/transcribe.py — what it does:
+  1. ffprobe: reads audio stream start_time from the video file.
+              audio_offset = stream start_time (usually 0, but non-zero for
+              some camera-recorded MP4s where the audio track starts late).
+  2. ffmpeg:  extracts audio to a TEMP mp3 file at /tmp/clipper-audio-XXXX.mp3
+              Flags: -avoid_negative_ts make_zero  (normalises to 0-based)
+              This temp file is deleted after transcription completes.
+  3. Deepgram nova-3: uploads the temp mp3. If > 25MB, splits into 10-min
+              chunks (written to /tmp/clipper-chunks-XXXX/) first.
+  4. Applies audio_offset to all Deepgram timestamps:
+              word.start += audio_offset
+              word.end   += audio_offset
+              This aligns Deepgram's 0-based times back to the video's
+              actual timeline (in case the audio stream had a non-zero start).
+  5. Prints JSON to stdout (streamed as SSE back to the browser):
+              { status: "done", transcript: [...], duration: float, fps: 0 }
+
+     transcript[] shape:
+       { start: float,   ← utterance start in seconds (video time)
+         end:   float,   ← utterance end in seconds
+         text:  string,  ← full utterance text
+         words: [{ word, start, end, confidence, speaker }] }
+
+FILES CREATED: /tmp/clipper-audio-XXXX.mp3 (deleted on completion)
+               /tmp/clipper-chunks-XXXX/chunk-NNN.mp3 (deleted on completion)
+NO files persist after this step.
+
+State written to React (page.tsx):
+  transcript   = TranscriptEntry[]   (utterances + word timings)
+  duration     = float               (total video seconds)
+  fps          = 30                  (hardcoded; ffprobe fps ignored here)
+  filePath     = absolute path to the video file
+  speakerMap   = auto-detected speaker labels
+
+→ Advances to Step 3 (prompt).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 3 — LLM EDIT DECISIONS  (UI: "2. Clip" tab)
+═══════════════════════════════════════════════════════════════════════════════
+
+Component:  src/components/prompt-step.tsx
+
+User pastes or edits an instruction prompt (e.g. "Remove filler, keep key points").
+
+API called:  POST /api/segment  { transcript, prompt }
+             → src/app/api/segment/route.ts
+             → calls Claude claude-sonnet-4-20250514 directly (no Python)
+
+Claude receives: numbered transcript lines with timestamps, plus the user prompt.
+Claude returns:  JSON array of { index, action, text? } decisions:
+  action = "keep"   → keep entire utterance
+  action = "remove" → remove entire utterance
+  action = "trim"   → keep only the words in `text`
+
+State written (page.tsx → handlePromptComplete):
+  decisions = LineDecision[]
+
+Then immediately: buildEditableWords(transcript, decisions) is called.
+
+buildEditableWords() — in src/app/page.tsx:
+  For each utterance × decision:
+    "keep"   → all words: removed=false
+    "remove" → all words: removed=true
+    "trim"   → greedy forward scan: match decision.text tokens against
+                source words; matched words removed=false, rest removed=true.
+                Falls back to keep-all if < 60% matched.
+  Returns EditableWord[]:
+    { id, text, removed, start, end, utteranceIdx, confidence, speaker }
+  where start/end come directly from Deepgram word-level timestamps.
+
+State written: editableWords = EditableWord[]
+
+→ Advances to Step 4 (edit).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 4 — WORD-LEVEL EDITOR  (UI: "3. Edit" tab)
+═══════════════════════════════════════════════════════════════════════════════
+
+Component:  src/components/video-editor.tsx
+
+User can:
+  - Click individual words to toggle removed=true/false
+  - Play video with words highlighted
+  - See kept/cut state in real time
+
+State mutated: editableWords (in place, via onChange callback)
+
+No API calls. No files written.
+
+→ User clicks "Continue to Export" → Step 5.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+STEP 5 — EXPORT  (UI: "4. Export" tab)
+═══════════════════════════════════════════════════════════════════════════════
+
+Component:  src/components/export-step.tsx
+
+On mount, computes:
+  clips = computeFinalClips(editableWords)
+         → src/lib/export.ts → computeFinalClips()
+
+computeFinalClips(words: EditableWord[]):
+  Iterates words in order. A new clip starts when a non-removed word
+  follows a removed word (or is the first kept word).
+  Returns: { start: float, end: float, text: string }[]
+  where start = first kept word's Deepgram start timestamp (seconds)
+        end   = last kept word's Deepgram end timestamp (seconds)
+  These are RAW DEEPGRAM TIMESTAMPS in seconds, 0-based from video start.
+
+
+───────────────────────────────────────────────────────────────────────────────
+EXPORT BUTTON A: "Debug Transcript"  →  <basename>_debug.txt
+───────────────────────────────────────────────────────────────────────────────
+
+Function: generateDebugTXT(words, fileName, duration)
+          → src/lib/export.ts
+
+Computes computeFinalClips() again internally.
+Shows kept/cut blocks with Deepgram timestamps and word text.
+Client-side only. No API call. No Python.
+Downloaded directly from browser memory.
+
+
+───────────────────────────────────────────────────────────────────────────────
+EXPORT BUTTON B: "XML Alignment Debug"  →  <basename>_xml_alignment.txt
+───────────────────────────────────────────────────────────────────────────────
+
+Function: generateXmlAlignmentDebug(words, fileName, duration, fps=30)
+          → src/lib/export.ts
+
+Shows per-word frame mapping: source frame → estimated timeline frame.
+Uses the same frame math as xml.ts (snap to frame boundaries).
+Client-side only. No API call. No Python.
+NOTE: This debug file reflects what a STANDALONE FCPXML export would do
+(via xml.ts generateFCPXML). It does NOT reflect what patch_fcpxml.py
+produces — those are different code paths with different logic.
+
+
+───────────────────────────────────────────────────────────────────────────────
+EXPORT BUTTON C: "Master XML"  →  <basename>_master.fcpxml
+───────────────────────────────────────────────────────────────────────────────
+
+This is the FCPXML pipeline. Full detail below.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+FCPXML EXPORT PIPELINE — COMPLETE TRACE
+═══════════════════════════════════════════════════════════════════════════════
+
+────────────────────────────────────────
+STAGE 1: Client — compute kept ranges
+────────────────────────────────────────
+
+File:     src/components/export-step.tsx → handleMasterXml()
+
+  clips = computeFinalClips(words)
+          [already computed on mount; same object reused]
+
+  keptRanges = clips.map(c => ({ start: c.start, end: c.end }))
+  → Array of { start: float, end: float }
+  → Values are RAW DEEPGRAM TIMESTAMPS in seconds, 0-based
+
+  Example:
+    [ { start: 0.067, end: 1.467 },
+      { start: 2.633, end: 9.067 },
+      { start: 10.067, end: 10.767 } ]
+
+  POST /api/patch-fcpxml
+    body: { fcpxmlPath: "/abs/path/to/multicam.fcpxml",
+            keptRanges: [ {start, end}, ... ] }
+
+
+────────────────────────────────────────
+STAGE 2: API route — spawn Python
+────────────────────────────────────────
+
+File:     src/app/api/patch-fcpxml/route.ts → POST handler
+
+  Receives: { fcpxmlPath, keptRanges }
+  Validates: fcpxmlPath exists on disk; keptRanges is non-empty array
+
+  Serialises: rangesJson = JSON.stringify(keptRanges)
+
+  Spawns:
+    python3 scripts/patch_fcpxml.py
+            <fcpxmlPath>           ← path to user's multicam FCPXML (read-only)
+            <rangesJson>           ← JSON string of kept ranges
+            /tmp/clipper-patched-<uuid>.fcpxml   ← output path
+
+  Captures stdout (JSON log lines) and stderr.
+  On success: reads output file, deletes it, returns XML as response body.
+  On failure: returns { error: stdout || stderr } with status 500.
+
+FILES CREATED: /tmp/clipper-patched-<uuid>.fcpxml (deleted after read)
+
+
+────────────────────────────────────────
+STAGE 3: Python — patch_fcpxml.py
+────────────────────────────────────────
+
+File:     scripts/patch_fcpxml.py
+
+Entry point: __main__
+  sys.argv[1] = multicam_path   (source FCPXML, never written)
+  sys.argv[2] = rangesJson      (kept ranges as JSON string)
+  sys.argv[3] = output_path     (temp file to write)
+
+  kept_ranges = json.loads(rangesJson)
+  → calls patch(multicam_path, kept_ranges, output_path)
+
+──────────────
+patch() setup:
+──────────────
+
+  Reads multicam FCPXML into ElementTree (in memory).
+  Strips <!DOCTYPE ...> for ET parsing (re-added on output).
+
+  sequence  = root.find(".//sequence")
+  spine     = sequence.find("spine")
+  tc_start  = parse_time(sequence.get("tcStart", "0/1s"))
+              → Fraction; the sequence's timecode start
+              → CRITICAL: all original clip offsets are relative to tc_start
+              → all keptRange timestamps must be shifted by tc_start
+
+  frame_dur = get_frame_duration(root, sequence)
+              → reads <format frameDuration="..."> for the sequence's format id
+              → e.g. Fraction(1001,30000) for 29.97fps
+                     Fraction(100,3000)   for 30fps
+
+  orig_clips = [c for c in spine if c.tag == "clip"]
+              → ONLY direct <clip> children of spine
+              → does NOT pick up <mc-clip>, <gap>, <asset-clip> at spine level
+
+──────────────────────────────────────────────────────────
+For each kept range { start: ks_s, end: ke_s } in seconds:
+──────────────────────────────────────────────────────────
+
+  Convert MP4 timestamps → sequence timeline coordinates:
+    ks = snap(Fraction(ks_s) + tc_start, frame_dur)
+    ke = snap(Fraction(ke_s) + tc_start, frame_dur)
+    (snap = round to nearest frame boundary)
+
+  The MP4 was rendered from the sequence starting at tc_start,
+  so MP4 time 0.0s == sequence timeline tc_start.
+
+  Find overlapping original clips:
+    for each clip in orig_clips:
+      clip_start, clip_end = clip.offset, clip.offset + clip.duration
+      overlap = [max(ks, clip_start), min(ke, clip_end)]
+      if overlap_end > overlap_start → this clip is involved
+
+  Group by (overlap_start, overlap_end):
+    Same range = parallel tracks (different camera angles), same output offset.
+    Different ranges = sequential cuts within the kept segment.
+
+  For each group:
+    out_offset = timeline_cursor
+    for each clip in group:
+      trimmed = trim_clip(clip, overlap_s, overlap_e, frame_dur)
+      trimmed.set("offset", fmt_time(out_offset))
+      → append to output spine
+    timeline_cursor += (overlap_e - overlap_s)
+
+──────────────────────────────────────────────────────────
+trim_clip(clip, seg_s, seg_e, frame_dur) — attribute trace:
+──────────────────────────────────────────────────────────
+
+  INPUTS:
+    clip    = original ElementTree element (not yet deep-copied)
+    seg_s   = Fraction, timeline start of the segment to keep
+    seg_e   = Fraction, timeline end of the segment to keep
+    frame_dur = Fraction, one frame's duration
+
+  CALCULATIONS:
+    clip_offset = parse_time(clip.get("offset"))   ← original timeline position
+    front_trim  = snap(max(0, seg_s - clip_offset), frame_dur)
+                  ← how far into the original clip we start from
+    orig_start  = parse_time(clip.get("start"))    ← original source in-point
+    new_start   = orig_start + front_trim           ← trimmed source in-point
+    new_dur     = snap(seg_e - seg_s, frame_dur)    ← duration of kept segment
+
+  DEEP COPY:
+    new_clip = deepcopy(clip)   ← full copy of element + all children
+
+  OUTER <clip> attributes written:
+    start    = fmt_time(new_start)     ← source in-point (CHANGED)
+    duration = fmt_time(new_dur)       ← duration (CHANGED)
+    offset   = "0/1s"                  ← placeholder; caller sets real value
+
+  CHILDREN — via _apply_trim(new_clip, front_trim, new_dur, new_start):
+    Recurses through all descendants where tag in:
+      {"video", "audio", "asset-clip", "clip", "gap"}
+    For each matching element:
+      if has "start" attr:
+        start = fmt_time(parse_time(original_start) + front_trim)
+      if has "duration" attr:
+        duration = fmt_time(new_dur)
+      if has "lane" attr:
+        offset = fmt_time(new_start)    ← lane sync convention (FCP/DR)
+      elif has "offset" attr (no lane):
+        offset = "0/1s"                 ← non-lane: sits at container start
+    Non-time-bearing children (adjust-transform, conform-rate, etc.) skipped.
+
+  ATTRIBUTE MATRIX (what value ends up on what element):
+
+    Element type            | start          | duration | offset
+    ─────────────────────── | ────────────── | ──────── | ──────────────────
+    outer <clip>            | new_start      | new_dur  | (caller sets)
+    <video> (no lane)       | new_start      | new_dur  | 0/1s
+    <audio> (no lane)       | new_start      | new_dur  | 0/1s
+    <asset-clip> (no lane)  | new_start      | new_dur  | 0/1s
+    <clip lane="N">         | new_start      | new_dur  | new_start
+    <video> inside lane clip| new_start      | new_dur  | 0/1s
+    <asset-clip lane="N">   | new_start      | new_dur  | new_start
+
+    where:
+      new_start = original_clip.start + front_trim
+      new_dur   = seg_e - seg_s (snapped to frame)
+      new_start (for lane offset) = same new_start value from outer clip
+
+  CALLER then sets:
+    trimmed.set("offset", fmt_time(timeline_cursor))
+
+──────────────────────────────────────────────────────────
+After all segments processed:
+──────────────────────────────────────────────────────────
+
+  Original spine elements removed; output elements appended.
+  sequence.duration updated to total kept duration.
+  XML serialised with _indent() and written to output_path.
+  DOCTYPE re-inserted at top.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+KNOWN GAPS / THINGS NOT VERIFIED
+═══════════════════════════════════════════════════════════════════════════════
+
+1. tc_start assumption
+   patch_fcpxml.py assumes the MP4 was rendered from the sequence starting
+   at tc_start. If the render starts at a different point (e.g. a partial
+   render, or the MP4 has its own offset), the ks/ke timeline conversion
+   will be wrong. There is no verification of this assumption.
+
+2. orig_clips limited to <clip> tags
+   If the multicam spine contains <mc-clip> elements (true FCP multicam
+   clips), they are silently skipped. orig_clips would be empty and the
+   script would raise "No <clip> elements in spine".
+
+3. No handling of clips with non-zero internal tc_start
+   If a spine clip's internal compound timeline itself has a tcStart offset,
+   the front_trim calculation based on clip.offset and clip.start may be off.
+
+4. XML Alignment Debug ≠ patch_fcpxml.py output
+   The "XML Alignment Debug" export uses xml.ts generateFCPXML() math
+   (standalone FCPXML from Deepgram timestamps). The Master XML uses
+   patch_fcpxml.py (modifying the multicam). These are different code paths.
+   The debug file CANNOT be used to verify the multicam patch output.
+
+5. fps hardcoded to 30 in some paths
+   handleExport() in page.tsx uses fps from state (correct).
+   generateXmlAlignmentDebug() in export-step.tsx hardcodes fps=30.
+   patch_fcpxml.py reads fps from the FCPXML format element (correct).
+
+6. keptRanges timestamps are Deepgram word boundaries
+   Deepgram word.start/end are the boundaries of individual words.
+   The first word of a kept clip may start slightly after the true sentence
+   start; the last word may end slightly before silence. This is by design
+   but means cuts are word-aligned, not silence-aligned.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+FILE REFERENCE MAP
+═══════════════════════════════════════════════════════════════════════════════
+
+src/app/page.tsx                  — app state, step routing, buildEditableWords
+src/components/file-browser.tsx   — step 1: file selection + transcription trigger
+src/components/prompt-step.tsx    — step 3: LLM prompt UI
+src/components/video-editor.tsx   — step 4: word-level edit UI
+src/components/export-step.tsx    — step 5: export buttons + handleMasterXml
+src/lib/types.ts                  — EditableWord, TranscriptEntry, SegmentGroup, etc.
+src/lib/export.ts                 — computeFinalClips, generateDebugTXT,
+                                    generateXmlAlignmentDebug
+src/lib/xml.ts                    — generateFCPXML (standalone export only,
+                                    NOT used in the Master XML path)
+src/app/api/browse/route.ts       — filesystem browser
+src/app/api/transcribe/route.ts   — spawns transcribe.py
+src/app/api/segment/route.ts      — Claude segmentation API
+src/app/api/patch-fcpxml/route.ts — spawns patch_fcpxml.py
+scripts/transcribe.py             — Deepgram transcription + ffmpeg audio extract
+scripts/patch_fcpxml.py           — multicam FCPXML patching (the main XML engine)
+
