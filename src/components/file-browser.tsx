@@ -1,17 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { TranscriptEntry } from "@/lib/types";
-
-interface BrowseEntry {
-  name: string;
-  path: string;
-  type: "file" | "directory";
-  size?: number;
-}
 
 interface Props {
   onComplete: (
@@ -25,12 +17,6 @@ interface Props {
   onFcpxmlSelected: (path: string) => void;
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -39,26 +25,10 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-const VIDEO_EXTENSIONS = [".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"];
-const XML_EXTENSIONS = [".xml", ".fcpxml"];
-
-function isVideo(name: string): boolean {
-  return VIDEO_EXTENSIONS.some((ext) => name.toLowerCase().endsWith(ext));
-}
-function isXml(name: string): boolean {
-  return XML_EXTENSIONS.some((ext) => name.toLowerCase().endsWith(ext));
-}
-
 type Phase = "browse" | "transcribing";
 type TxStatus = "extracting_audio" | "chunking_audio" | "transcribing" | "done" | "error";
 
 export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }: Props) {
-  const [dir, setDir] = useState("");
-  const [entries, setEntries] = useState<BrowseEntry[]>([]);
-  const [parent, setParent] = useState("");
-  const [browseLoading, setBrowseLoading] = useState(false);
-  const [browseError, setBrowseError] = useState<string | null>(null);
-
   const [videoPath, setVideoPath] = useState("");
   const [videoName, setVideoName] = useState("");
 
@@ -73,31 +43,24 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
   const [leftChState, setLeftChState] = useState<"idle" | "extracting" | "transcribing" | "done">("idle");
   const [rightChState, setRightChState] = useState<"idle" | "extracting" | "transcribing" | "done">("idle");
 
-  const browse = async (targetDir?: string) => {
-    setBrowseLoading(true);
-    setBrowseError(null);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+
+  const openNativePicker = async (type: "xml" | "video") => {
+    setPickerError(null);
     try {
-      const params = targetDir ? `?dir=${encodeURIComponent(targetDir)}` : "";
-      const res = await fetch(`/api/browse${params}`);
+      const res = await fetch(`/api/native-pick?type=${type}`);
       const data = await res.json();
-      if (data.error) setBrowseError(data.error);
-      else {
-        setDir(data.dir);
-        setParent(data.parent);
-        setEntries(data.entries || []);
+      if (data.cancelled) return;
+      if (data.error) { setPickerError(data.error); return; }
+      if (type === "xml") {
+        onFcpxmlSelected(data.path);
+      } else {
+        setVideoPath(data.path);
+        setVideoName(data.path.split("/").pop() || data.path);
       }
     } catch (e: unknown) {
-      setBrowseError(e instanceof Error ? e.message : "Browse failed");
-    } finally {
-      setBrowseLoading(false);
+      setPickerError(e instanceof Error ? e.message : "Picker failed");
     }
-  };
-
-  useEffect(() => { browse(); }, []);
-
-  const handleFileClick = (entry: BrowseEntry) => {
-    if (isXml(entry.name)) onFcpxmlSelected(entry.path);
-    else if (isVideo(entry.name)) { setVideoPath(entry.path); setVideoName(entry.name); }
   };
 
   const startTranscription = async () => {
@@ -188,11 +151,6 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
     }
   };
 
-  const videoFiles = entries.filter((e) => e.type === "file" && isVideo(e.name));
-  const xmlFiles = entries.filter((e) => e.type === "file" && isXml(e.name));
-  const dirs = entries.filter((e) => e.type === "directory" && !e.name.startsWith("."));
-  const hasRelevantFiles = videoFiles.length > 0 || xmlFiles.length > 0 || dirs.length > 0;
-
   const canTranscribe = !!(videoPath && fcpxmlPath);
 
   return (
@@ -214,10 +172,14 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
               <p className="text-sm font-semibold text-white mb-1">Multi-Cam XML</p>
               <p className="text-xs text-neutral-500 mb-3">All cameras + final audio track</p>
               {fcpxmlPath ? (
-                <div className="flex items-center gap-2"><span className="text-lg">📋</span><span className="text-xs text-violet-300 font-mono truncate">{fcpxmlPath.split("/").pop()}</span></div>
+                <div className="flex items-center gap-2 mb-3"><span className="text-lg">📋</span><span className="text-xs text-violet-300 font-mono truncate">{fcpxmlPath.split("/").pop()}</span></div>
               ) : (
-                <div className="flex items-center gap-2 text-neutral-600"><span className="text-lg">📋</span><span className="text-xs">No file selected</span></div>
+                <div className="flex items-center gap-2 text-neutral-600 mb-3"><span className="text-lg">📋</span><span className="text-xs">No file selected</span></div>
               )}
+              <Button size="sm" variant="outline" onClick={() => openNativePicker("xml")}
+                className="w-full text-xs border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300">
+                Browse...
+              </Button>
             </div>
 
             <div className={`rounded-xl border-2 p-4 transition-colors ${videoPath ? "border-emerald-500 bg-emerald-950/30" : "border-dashed border-neutral-700 bg-neutral-900/30"}`}>
@@ -228,12 +190,20 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
               <p className="text-sm font-semibold text-white mb-1">Final MP4</p>
               <p className="text-xs text-neutral-500 mb-3">Final video with mixed audio</p>
               {videoPath ? (
-                <div className="flex items-center gap-2"><span className="text-lg">🎬</span><span className="text-xs text-emerald-300 font-mono truncate">{videoName}</span></div>
+                <div className="flex items-center gap-2 mb-3"><span className="text-lg">🎬</span><span className="text-xs text-emerald-300 font-mono truncate">{videoName}</span></div>
               ) : (
-                <div className="flex items-center gap-2 text-neutral-600"><span className="text-lg">🎬</span><span className="text-xs">No file selected</span></div>
+                <div className="flex items-center gap-2 text-neutral-600 mb-3"><span className="text-lg">🎬</span><span className="text-xs">No file selected</span></div>
               )}
+              <Button size="sm" variant="outline" onClick={() => openNativePicker("video")}
+                className="w-full text-xs border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300">
+                Browse...
+              </Button>
             </div>
           </div>
+
+          {pickerError && (
+            <div className="text-red-400 text-xs mb-4 p-3 bg-red-950/20 border border-red-900/30 rounded-lg">{pickerError}</div>
+          )}
 
           <div className="mb-8">
             <Button
@@ -243,55 +213,6 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
             >
               {canTranscribe ? "Transcribe →" : "Select both files to transcribe"}
             </Button>
-          </div>
-
-          <div className="border border-neutral-800 rounded-xl overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-2.5 bg-neutral-900/60 border-b border-neutral-800">
-              <span className="text-xs text-neutral-500 font-mono truncate flex-1">{dir || "Loading..."}</span>
-              {parent && parent !== dir && (
-                <button onClick={() => browse(parent)} disabled={browseLoading} className="text-xs text-neutral-400 hover:text-white shrink-0">↑ Up</button>
-              )}
-            </div>
-            {browseError && <div className="text-red-400 text-xs p-4 bg-red-950/20">{browseError}</div>}
-            {browseLoading && <div className="text-neutral-500 text-sm py-10 text-center">Loading...</div>}
-            {!browseLoading && (
-              <div className="divide-y divide-neutral-800/50">
-                {dirs.map((entry) => (
-                  <button key={entry.path} onClick={() => browse(entry.path)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-800/40 transition-colors text-left">
-                    <span className="text-base">📁</span>
-                    <span className="flex-1 text-sm text-neutral-300 truncate">{entry.name}</span>
-                    <span className="text-neutral-600 text-xs">›</span>
-                  </button>
-                ))}
-                {xmlFiles.map((entry) => (
-                  <button key={entry.path} onClick={() => handleFileClick(entry)}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 transition-all text-left ${fcpxmlPath === entry.path ? "bg-violet-950/40 hover:bg-violet-950/60" : "hover:bg-neutral-800/40"}`}>
-                    <span className="text-base">📋</span>
-                    <span className="flex-1 text-sm text-white truncate">{entry.name}</span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {fcpxmlPath === entry.path
-                        ? <span className="text-xs text-violet-400">Selected ✓</span>
-                        : <Badge variant="outline" className="text-xs border-violet-800/50 text-violet-500 bg-violet-950/20">XML</Badge>}
-                      {entry.size && <span className="text-xs text-neutral-500">{formatSize(entry.size)}</span>}
-                    </div>
-                  </button>
-                ))}
-                {videoFiles.map((entry) => (
-                  <button key={entry.path} onClick={() => handleFileClick(entry)}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 transition-all text-left ${videoPath === entry.path ? "bg-emerald-950/40 hover:bg-emerald-950/60" : "hover:bg-neutral-800/40"}`}>
-                    <span className="text-base">🎬</span>
-                    <span className="flex-1 text-sm text-white truncate">{entry.name}</span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {videoPath === entry.path
-                        ? <span className="text-xs text-emerald-400">Selected ✓</span>
-                        : <Badge variant="outline" className="text-xs border-emerald-800/50 text-emerald-500 bg-emerald-950/20">MP4</Badge>}
-                      {entry.size && <span className="text-xs text-neutral-500">{formatSize(entry.size)}</span>}
-                    </div>
-                  </button>
-                ))}
-                {!hasRelevantFiles && <div className="text-neutral-600 text-sm py-10 text-center">No relevant files here</div>}
-              </div>
-            )}
           </div>
         </>
       )}
