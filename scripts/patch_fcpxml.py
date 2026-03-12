@@ -237,6 +237,85 @@ def build_version_spine(outer_clips_orig, clips, tc_start, frame_dur, ref_lane, 
     return new_spine
 
 
+def build_compact_version_spine(outer_clips_orig, clips, tc_start, frame_dur, timeline_offset):
+    """
+    Build spine elements for one version with kept clips placed sequentially.
+    No primary spine. No gaps. Multi-cam lane children trimmed and preserved.
+    Returns (spine_elements, total_version_duration).
+    """
+    if not clips:
+        return [], Fraction(0)
+
+    cursor = timeline_offset
+    result = []
+
+    for idx, seg in enumerate(clips):
+        ks = snap(Fraction(seg["start"]), frame_dur)
+        ke = snap(Fraction(seg["end"]),   frame_dur)
+        if ke <= ks:
+            ke = ks + frame_dur
+        seg_dur = ke - ks
+
+        # Find source clip by sequence position
+        seg_seq_start = tc_start + ks
+        source_clip = None
+        for oc in outer_clips_orig:
+            clip_offset  = parse_time(oc.get("offset", "0/1s"))
+            clip_end_seq = clip_offset + parse_time(oc.get("duration"))
+            if clip_offset <= seg_seq_start < clip_end_seq:
+                source_clip = oc
+                break
+        if source_clip is None:
+            source_clip = outer_clips_orig[0]
+
+        # Compute source in-point
+        clip_offset    = parse_time(source_clip.get("offset", "0/1s"))
+        clip_src_start = parse_time(source_clip.get("start",  "0/1s"))
+        advance        = seg_seq_start - clip_offset
+        new_src_start  = clip_src_start + advance
+
+        # Create new spine clip at sequential position
+        new_clip = deepcopy(source_clip)
+        new_clip.attrib.pop("lane", None)
+        new_clip.set("offset",   fmt_time(cursor))
+        new_clip.set("start",    fmt_time(new_src_start))
+        new_clip.set("duration", fmt_time(seg_dur))
+
+        # Remove deepcopied lane children; re-add trimmed versions below
+        for child in list(new_clip):
+            if child.get("lane") is not None:
+                new_clip.remove(child)
+
+        # Trim and re-add multi-cam lane children
+        for lc in source_clip:
+            if lc.get("lane") is None:
+                continue
+            lc_offset = parse_time(lc.get("offset", "0/1s"))
+            lc_start  = parse_time(lc.get("start",  "0/1s"))
+            lc_dur    = parse_time(lc.get("duration", "0/1s"))
+            lc_end    = lc_offset + lc_dur
+
+            inter_s = max(lc_offset, new_src_start)
+            inter_e = min(lc_end,    new_src_start + seg_dur)
+            if inter_e <= inter_s:
+                continue
+
+            advance_lc = inter_s - lc_offset
+            trimmed_lc = deepcopy(lc)
+            trimmed_lc.set("offset",   fmt_time(inter_s))
+            trimmed_lc.set("start",    fmt_time(lc_start + advance_lc))
+            trimmed_lc.set("duration", fmt_time(inter_e - inter_s))
+            new_clip.append(trimmed_lc)
+
+        result.append(new_clip)
+        log({"status": "compact_clip", "version_offset": float(timeline_offset),
+             "idx": idx, "src_start": float(new_src_start),
+             "seq_offset": float(cursor), "dur": float(seg_dur)})
+        cursor += seg_dur
+
+    return result, cursor - timeline_offset
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 4:
         log({"error": "Usage: patch_fcpxml.py <input.fcpxml> <versions_json> <output.fcpxml> [video_path]"})
@@ -278,50 +357,30 @@ if __name__ == "__main__":
         if not outer_clips:
             raise RuntimeError("No clip elements in spine")
 
-        # Original timeline duration (used to compute per-version offsets)
-        original_dur = parse_time(sequence.get("duration", "0/1s"))
-        if original_dur == 0:
-            # Fallback: derive from last clip's end position
-            original_dur = max(
-                parse_time(oc.get("offset", "0/1s")) + parse_time(oc.get("duration", "0/1s"))
-                for oc in outer_clips
-            )
-
         # Gap between versions: 60 seconds, snapped to frame boundary
         gap_dur = snap(Fraction(60), frame_dur)
-        version_stride = original_dur + gap_dur
 
-        # Find highest lane already in use across all primary clips
-        ref_lane = 1
-        for oc in outer_clips:
-            for child in oc:
-                try:
-                    lane = int(child.get("lane", 0))
-                    if lane >= ref_lane:
-                        ref_lane = lane + 1
-                except (ValueError, TypeError):
-                    pass
-        log({"status": "ref_lane", "lane": ref_lane,
-             "versions": len(versions),
-             "original_dur": float(original_dur),
-             "version_stride": float(version_stride)})
-
-        # Build spine elements for all versions
         all_spine_elements = []
+        version_durations  = []
+        cursor_offset      = Fraction(0)
+
         for i, version_clips in enumerate(versions):
-            timeline_offset = i * version_stride
-            version_spine = build_version_spine(
-                outer_clips, version_clips, tc_start, frame_dur, ref_lane, timeline_offset
+            version_spine, version_dur = build_compact_version_spine(
+                outer_clips, version_clips, tc_start, frame_dur, cursor_offset
             )
             all_spine_elements.extend(version_spine)
+            version_durations.append(version_dur)
             log({"status": "version_done", "version": i,
                  "clips": len(version_clips),
                  "spine_elements": len(version_spine),
-                 "offset": float(timeline_offset)})
+                 "offset": float(cursor_offset),
+                 "version_dur": float(version_dur)})
+            cursor_offset += version_dur
+            if i < len(versions) - 1:
+                cursor_offset += gap_dur
 
-        # Update sequence duration to cover all versions
         n = len(versions)
-        new_duration = n * original_dur + (n - 1) * gap_dur
+        new_duration = sum(version_durations) + (n - 1) * gap_dur
         sequence.set("duration", fmt_time(new_duration))
 
         # Rebuild spine
