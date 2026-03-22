@@ -24,6 +24,8 @@ export interface LineDecision {
   text?: string; // trimmed text when action === "trim"
   /** Set by the fragment-validation pass when the output text appears to start mid-sentence. */
   fragmentWarning?: boolean;
+  /** Brief rationale from the LLM explaining the decision, parsed from inline // comment. */
+  rationale?: string;
 }
 
 // A single word in the editable transcript.
@@ -44,6 +46,10 @@ export interface EditableWord {
   boundaryWarning?: boolean;
   /** Set by assembly coherence validation — human editor should review this clip. */
   coherenceWarning?: boolean;
+  /** Set when this word belongs to a user-selected hook or payoff anchor — cannot be removed. */
+  anchored?: boolean;
+/** LLM rationale for this word's utterance decision, propagated to the first word of each utterance. */
+  rationale?: string;
 }
 
 // Speaker name map: Deepgram speaker ID → human-readable label (e.g. "Host", "Guest")
@@ -51,3 +57,4 @@ export type SpeakerMap = Record<number, string>;
 
 // App step flow
 export type AppStep = "browse" | "prompt" | "edit" | "export";
+

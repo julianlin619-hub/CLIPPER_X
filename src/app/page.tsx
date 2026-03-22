@@ -101,7 +101,8 @@ function greedyMatch(trimTokens: string[], poolNorm: string[]): Set<number> {
 
 function buildEditableWords(
   transcript: TranscriptEntry[],
-  decisions: LineDecision[]
+  decisions: LineDecision[],
+  anchorRanges: Array<{ start: number; end: number }> = []
 ): EditableWord[] {
   const decisionMap = new Map(decisions.map((d) => [d.index, d]));
   const allWords: EditableWord[] = [];
@@ -216,14 +217,20 @@ function buildEditableWords(
     const decision = decisionMap.get(utteranceIdx);
     const sourceWords = getSourceWords(seg);
     const removedIndices: Removal = resolvedRemovals.get(utteranceIdx) ?? "none";
+    const isAnchored = anchorRanges.some(
+      (r) => utteranceIdx >= r.start && utteranceIdx <= r.end
+    );
 
     sourceWords.forEach((w, wi) => {
-      const removed =
+      const removedByLLM =
         removedIndices === "all"
           ? true
           : removedIndices === "none"
           ? false
           : (removedIndices as Set<number>).has(wi);
+
+      // Anchor ranges are always kept, regardless of LLM decision
+      const removed = isAnchored ? false : removedByLLM;
 
       allWords.push({
         id: `${utteranceIdx}-${wi}`,
@@ -234,8 +241,10 @@ function buildEditableWords(
         utteranceIdx,
         confidence: w.confidence,
         speaker: w.speaker,
-        // Propagate fragment warning to the first word only (used by the editor UI)
+        // Propagate fragment warning and rationale to the first word only
         ...(wi === 0 && decision?.fragmentWarning ? { fragmentWarning: true } : {}),
+        ...(wi === 0 && decision?.rationale ? { rationale: decision.rationale } : {}),
+        ...(isAnchored ? { anchored: true } : {}),
       });
     });
   });
@@ -290,8 +299,7 @@ function stripFillerClips(words: EditableWord[]): EditableWord[] {
     const duration = (runWords[runWords.length - 1].end) - runWords[0].start;
     const text = runWords.map((w) => w.text).join(" ");
 
-    if (duration < 1.5 && runWords.length <= 3 && isAllFiller(text)) {
-
+    if (duration < 1.5 && runWords.length <= 3 && isAllFiller(text) && !runWords.some((w) => w.anchored)) {
       for (let k = i; k < j; k++) result[k] = { ...result[k], removed: true };
     }
 
@@ -508,7 +516,6 @@ export default function Home() {
   const [activeVersion, setActiveVersion] = useState(0);
   const [fcpxmlPath, setFcpxmlPath] = useState<string>("");
   const [coherenceChecking, setCoherenceChecking] = useState(false);
-  const [coherenceSummary, setCoherenceSummary] = useState<{ removed: number; flagged: number } | null>(null);
 
   const handleTranscribeComplete = (
     t: TranscriptEntry[],
@@ -517,20 +524,30 @@ export default function Home() {
     videoPath: string = "",
     stereo?: boolean
   ) => {
-    if (videoPath) setFilePath(videoPath);
+    if (videoPath) {
+      setFilePath(videoPath);
+      setFileName(videoPath.split("/").pop() || videoPath);
+    }
     setTranscript(t);
     setDuration(d);
     setFps(frameRate);
-    setSpeakerMap(stereo ? { 0: "Host", 1: "Caller" } : autoDetectSpeakers(t));
+    if (stereo) {
+      setSpeakerMap({ 0: "Host", 1: "Caller" });
+    } else {
+      const detected = autoDetectSpeakers(t);
+      const remapped: SpeakerMap = Object.fromEntries(
+        Object.entries(detected).map(([k, v]) => [Number(k), v === "Guest" ? "Caller" : v])
+      );
+      setSpeakerMap(remapped);
+    }
     setStep("prompt");
   };
 
   const handlePromptComplete = async (allDecisions: LineDecision[][]) => {
     setCoherenceChecking(true);
-    setCoherenceSummary(null);
     setActiveVersion(0);
 
-    // Build + validate all versions in parallel
+    // Build all versions
     const perVersion = allDecisions.map((decisions) => {
       const raw = buildEditableWords(transcript, decisions);
       const defiltered = stripFillerClips(raw);
@@ -545,6 +562,7 @@ export default function Home() {
       return { repaired, segments, clipInputs };
     });
 
+    // Run coherence validation
     const validationResults = await Promise.all(
       perVersion.map(({ clipInputs }) => validateAssembledOutput(clipInputs))
     );
@@ -554,10 +572,6 @@ export default function Home() {
     );
 
     setCoherenceChecking(false);
-    const totalRemoved = validationResults.reduce((s, r) => s + r.removeClips.length, 0);
-    const totalFlagged = validationResults.reduce((s, r) => s + r.flagClips.length, 0);
-    setCoherenceSummary({ removed: totalRemoved, flagged: totalFlagged });
-
     setVersionWords(cleanedVersions);
     setStep("edit");
   };
@@ -635,33 +649,6 @@ export default function Home() {
 
         {step === "edit" && (
           <>
-            {/* Coherence summary banner */}
-            {coherenceSummary && (coherenceSummary.removed > 0 || coherenceSummary.flagged > 0) && (
-              <div className="mb-4 flex items-center justify-between px-4 py-3 rounded-lg bg-neutral-900 border border-neutral-700 text-sm">
-                <div className="flex items-center gap-3">
-                  <span className="text-neutral-400">Coherence check:</span>
-                  {coherenceSummary.removed > 0 && (
-                    <span className="text-red-400 font-medium">
-                      {coherenceSummary.removed} clip{coherenceSummary.removed !== 1 ? "s" : ""} auto-removed
-                    </span>
-                  )}
-                  {coherenceSummary.removed > 0 && coherenceSummary.flagged > 0 && (
-                    <span className="text-neutral-600">·</span>
-                  )}
-                  {coherenceSummary.flagged > 0 && (
-                    <span className="text-yellow-400 font-medium">
-                      {coherenceSummary.flagged} clip{coherenceSummary.flagged !== 1 ? "s" : ""} flagged for review
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => setCoherenceSummary(null)}
-                  className="text-neutral-600 hover:text-neutral-400 transition-colors text-xs"
-                >
-                  dismiss
-                </button>
-              </div>
-            )}
             {/* Version tabs */}
             {versionWords.length > 1 && (
               <div className="flex gap-1 mb-4">
@@ -702,6 +689,7 @@ export default function Home() {
             duration={duration}
             transcript={transcript}
             fcpxmlPath={fcpxmlPath}
+            speakerMap={speakerMap}
           />
         )}
       </div>

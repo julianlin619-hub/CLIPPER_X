@@ -27,10 +27,12 @@ function formatTime(seconds: number): string {
 
 type Phase = "browse" | "transcribing";
 type TxStatus = "extracting_audio" | "chunking_audio" | "transcribing" | "done" | "error";
+type Mode = "single" | "multicam";
 
 export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }: Props) {
   const [videoPath, setVideoPath] = useState("");
   const [videoName, setVideoName] = useState("");
+  const [mode, setMode] = useState<Mode>("single");
 
   const [phase, setPhase] = useState<Phase>("browse");
 
@@ -151,7 +153,7 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
     }
   };
 
-  const canTranscribe = !!(videoPath && fcpxmlPath);
+  const canTranscribe = mode === "single" ? !!videoPath : !!(videoPath && fcpxmlPath);
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -160,35 +162,21 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
         <>
           <div className="mb-8">
             <h2 className="text-2xl font-bold mb-1">Select &amp; Transcribe</h2>
-            <p className="text-neutral-400 text-sm">Select both inputs, then transcribe. Host and caller are identified separately.</p>
+            <p className="text-neutral-400 text-sm">
+              {mode === "single"
+                ? "Select your video file to transcribe and edit."
+                : "Select both inputs, then transcribe. Host and caller are identified separately."}
+            </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className={`rounded-xl border-2 p-4 transition-colors ${fcpxmlPath ? "border-violet-500 bg-violet-950/30" : "border-dashed border-neutral-700 bg-neutral-900/30"}`}>
+          {mode === "single" ? (
+            <div className={`rounded-xl border-2 p-4 mb-6 transition-colors ${videoPath ? "border-emerald-500 bg-emerald-950/30" : "border-dashed border-neutral-700 bg-neutral-900/30"}`}>
               <div className="flex items-start justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Input 1</span>
-                {fcpxmlPath && <button onClick={() => onFcpxmlSelected("")} className="text-neutral-500 hover:text-neutral-300 text-xs">✕</button>}
-              </div>
-              <p className="text-sm font-semibold text-white mb-1">Multi-Cam XML</p>
-              <p className="text-xs text-neutral-500 mb-3">All cameras + final audio track</p>
-              {fcpxmlPath ? (
-                <div className="flex items-center gap-2 mb-3"><span className="text-lg">📋</span><span className="text-xs text-violet-300 font-mono truncate">{fcpxmlPath.split("/").pop()}</span></div>
-              ) : (
-                <div className="flex items-center gap-2 text-neutral-600 mb-3"><span className="text-lg">📋</span><span className="text-xs">No file selected</span></div>
-              )}
-              <Button size="sm" variant="outline" onClick={() => openNativePicker("xml")}
-                className="w-full text-xs border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300">
-                Browse...
-              </Button>
-            </div>
-
-            <div className={`rounded-xl border-2 p-4 transition-colors ${videoPath ? "border-emerald-500 bg-emerald-950/30" : "border-dashed border-neutral-700 bg-neutral-900/30"}`}>
-              <div className="flex items-start justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Input 2</span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Video File</span>
                 {videoPath && <button onClick={() => { setVideoPath(""); setVideoName(""); }} className="text-neutral-500 hover:text-neutral-300 text-xs">✕</button>}
               </div>
-              <p className="text-sm font-semibold text-white mb-1">Final MP4</p>
-              <p className="text-xs text-neutral-500 mb-3">Final video with mixed audio</p>
+              <p className="text-sm font-semibold text-white mb-1">MP4 / MOV</p>
+              <p className="text-xs text-neutral-500 mb-3">Single camera video file</p>
               {videoPath ? (
                 <div className="flex items-center gap-2 mb-3"><span className="text-lg">🎬</span><span className="text-xs text-emerald-300 font-mono truncate">{videoName}</span></div>
               ) : (
@@ -199,20 +187,76 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
                 Browse...
               </Button>
             </div>
-          </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className={`rounded-xl border-2 p-4 transition-colors ${fcpxmlPath ? "border-violet-500 bg-violet-950/30" : "border-dashed border-neutral-700 bg-neutral-900/30"}`}>
+                <div className="flex items-start justify-between mb-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Input 1</span>
+                  {fcpxmlPath && <button onClick={() => onFcpxmlSelected("")} className="text-neutral-500 hover:text-neutral-300 text-xs">✕</button>}
+                </div>
+                <p className="text-sm font-semibold text-white mb-1">Multi-Cam XML</p>
+                <p className="text-xs text-neutral-500 mb-3">All cameras + final audio track</p>
+                {fcpxmlPath ? (
+                  <div className="flex items-center gap-2 mb-3"><span className="text-lg">📋</span><span className="text-xs text-violet-300 font-mono truncate">{fcpxmlPath.split("/").pop()}</span></div>
+                ) : (
+                  <div className="flex items-center gap-2 text-neutral-600 mb-3"><span className="text-lg">📋</span><span className="text-xs">No file selected</span></div>
+                )}
+                <Button size="sm" variant="outline" onClick={() => openNativePicker("xml")}
+                  className="w-full text-xs border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300">
+                  Browse...
+                </Button>
+              </div>
+
+              <div className={`rounded-xl border-2 p-4 transition-colors ${videoPath ? "border-emerald-500 bg-emerald-950/30" : "border-dashed border-neutral-700 bg-neutral-900/30"}`}>
+                <div className="flex items-start justify-between mb-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Input 2</span>
+                  {videoPath && <button onClick={() => { setVideoPath(""); setVideoName(""); }} className="text-neutral-500 hover:text-neutral-300 text-xs">✕</button>}
+                </div>
+                <p className="text-sm font-semibold text-white mb-1">Final MP4</p>
+                <p className="text-xs text-neutral-500 mb-3">Final video with mixed audio</p>
+                {videoPath ? (
+                  <div className="flex items-center gap-2 mb-3"><span className="text-lg">🎬</span><span className="text-xs text-emerald-300 font-mono truncate">{videoName}</span></div>
+                ) : (
+                  <div className="flex items-center gap-2 text-neutral-600 mb-3"><span className="text-lg">🎬</span><span className="text-xs">No file selected</span></div>
+                )}
+                <Button size="sm" variant="outline" onClick={() => openNativePicker("video")}
+                  className="w-full text-xs border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300">
+                  Browse...
+                </Button>
+              </div>
+            </div>
+          )}
 
           {pickerError && (
             <div className="text-red-400 text-xs mb-4 p-3 bg-red-950/20 border border-red-900/30 rounded-lg">{pickerError}</div>
           )}
 
-          <div className="mb-8">
+          <div className="mb-6">
             <Button
               onClick={startTranscription}
               disabled={!canTranscribe}
               className="w-full bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-30 disabled:cursor-not-allowed font-semibold"
             >
-              {canTranscribe ? "Transcribe →" : "Select both files to transcribe"}
+              {canTranscribe ? "Transcribe →" : mode === "single" ? "Select a video to transcribe" : "Select both files to transcribe"}
             </Button>
+          </div>
+
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-neutral-800 bg-neutral-900/40">
+            <span className="text-xs text-neutral-500 shrink-0">Mode:</span>
+            <div className="flex gap-1 flex-1">
+              <button
+                onClick={() => { setMode("single"); onFcpxmlSelected(""); }}
+                className={`flex-1 text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${mode === "single" ? "bg-neutral-700 text-white" : "text-neutral-500 hover:text-neutral-300"}`}
+              >
+                Single Camera
+              </button>
+              <button
+                onClick={() => setMode("multicam")}
+                className={`flex-1 text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${mode === "multicam" ? "bg-neutral-700 text-white" : "text-neutral-500 hover:text-neutral-300"}`}
+              >
+                Multi-Camera
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -273,10 +317,12 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3 text-xs text-neutral-500">
-            <div className="rounded-lg border border-neutral-800 px-3 py-2 flex items-center gap-2">
-              <span>📋</span><span className="truncate font-mono">{fcpxmlPath.split("/").pop()}</span>
-            </div>
+          <div className={`grid gap-3 text-xs text-neutral-500 ${mode === "multicam" ? "grid-cols-2" : "grid-cols-1"}`}>
+            {mode === "multicam" && (
+              <div className="rounded-lg border border-neutral-800 px-3 py-2 flex items-center gap-2">
+                <span>📋</span><span className="truncate font-mono">{fcpxmlPath.split("/").pop()}</span>
+              </div>
+            )}
             <div className="rounded-lg border border-neutral-800 px-3 py-2 flex items-center gap-2">
               <span>🎬</span><span className="truncate font-mono">{videoName}</span>
             </div>

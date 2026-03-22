@@ -1,35 +1,4 @@
-import { LineDecision, SpeakerMap } from "@/lib/types";
-
-/**
- * Build the user message for the LLM edit step.
- * Each line is prefixed with [index] and its speaker label so the LLM
- * can reference utterances by index in its decision output.
- *
- * If a speakerMap is provided (e.g. {0: "Host", 1: "Guest"}), resolved names
- * are used instead of the raw "Speaker N" fallback.
- */
-export function buildCreativeMessage(
-  lines: { index: number; text: string; speaker?: number | null }[],
-  segmentTitle?: string,
-  segmentSummary?: string,
-  speakerMap?: SpeakerMap
-): string {
-  const context = segmentTitle
-    ? `## Segment: ${segmentTitle}${segmentSummary ? `\n${segmentSummary}` : ""}\n\n`
-    : "";
-
-  const lineList = lines
-    .map((l) => {
-      const label =
-        l.speaker != null
-          ? (speakerMap?.[l.speaker] ?? `Speaker ${l.speaker}`)
-          : "Speaker";
-      return `[${l.index}] ${label}: ${l.text}`;
-    })
-    .join("\n");
-
-  return `${context}## Transcript\n${lineList}`;
-}
+import { LineDecision } from "@/lib/types";
 
 export interface ParseIndexedDecisionsResult {
   decisions: LineDecision[];
@@ -62,8 +31,8 @@ export function parseIndexedDecisions(
     cleaned = cleaned.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
   }
 
-  // Parse each line
-  const linePattern = /^\[(\d+)\]\s+(KEEP|REMOVE|TRIM)(?:\s*:\s*(.*))?$/i;
+  // Parse each line. Format: [index] ACTION[: text] [// rationale]
+  const linePattern = /^\[(\d+)\]\s+(KEEP|REMOVE|TRIM)(.*)?$/i;
 
   for (const line of cleaned.split("\n")) {
     const trimmed = line.trim();
@@ -74,13 +43,35 @@ export function parseIndexedDecisions(
 
     const index = parseInt(match[1], 10);
     const action = match[2].toLowerCase() as "keep" | "remove" | "trim";
-    const text = match[3]?.trim() || undefined;
+
+    // Parse optional ": text" and optional "// rationale" from the rest of the line
+    let rest = (match[3] ?? "").trim();
+    let text: string | undefined;
+    let rationale: string | undefined;
+
+    if (rest.startsWith(":")) rest = rest.slice(1).trim();
+
+    const commentIdx = rest.indexOf(" // ");
+    if (commentIdx !== -1) {
+      const beforeComment = rest.slice(0, commentIdx).trim();
+      text = beforeComment || undefined;
+      rationale = rest.slice(commentIdx + 4).trim() || undefined;
+    } else if (rest.startsWith("// ")) {
+      rationale = rest.slice(3).trim() || undefined;
+    } else {
+      text = rest || undefined;
+    }
 
     if (action === "trim" && !text) {
       // TRIM without text => treat as KEEP (safe fallback)
-      decisionMap.set(index, { index, action: "keep" });
+      decisionMap.set(index, { index, action: "keep", ...(rationale ? { rationale } : {}) });
     } else {
-      decisionMap.set(index, { index, action, ...(text ? { text } : {}) });
+      decisionMap.set(index, {
+        index,
+        action,
+        ...(text ? { text } : {}),
+        ...(rationale ? { rationale } : {}),
+      });
     }
   }
 
@@ -106,3 +97,4 @@ export function parseIndexedDecisions(
 
   return { decisions, missingIndices };
 }
+

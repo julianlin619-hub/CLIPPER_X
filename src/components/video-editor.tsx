@@ -315,7 +315,7 @@ export default function VideoEditor({ words, onChange, onContinue, videoSrc, fil
           </span>
           <span className="flex items-center gap-1 text-xs text-neutral-600">
             <kbd className="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 font-sans text-green-400">Speaker</kbd>
-            <span>Restore line</span>
+            <span>Toggle line</span>
           </span>
           <span className="flex items-center gap-1 text-xs text-neutral-600">
             <span>click word +</span>
@@ -403,10 +403,10 @@ export default function VideoEditor({ words, onChange, onContinue, videoSrc, fil
               {groups.map((group) => {
                 const groupStart = group.words[0]?.start ?? 0;
                 const groupEnd = group.words[group.words.length - 1]?.end ?? 0;
-                const allRemoved = group.words.every((w) => w.removed);
-
                 return (
-                  <div key={group.utteranceIdx}>
+                  <div
+                    key={group.utteranceIdx}
+                  >
                     {/* Timestamp + speaker label */}
                     <div className="flex items-center gap-2 mb-1">
                       <button
@@ -417,41 +417,24 @@ export default function VideoEditor({ words, onChange, onContinue, videoSrc, fil
                       </button>
                       {group.speaker != null && (
                         <button
-                          onClick={() => onChange(words.map((w) => group.words.some((gw) => gw.id === w.id) ? { ...w, removed: false } : w))}
+                          onClick={() => {
+                            const allKept = group.words.every((w) => !w.removed);
+                            onChange(words.map((w) =>
+                              group.words.some((gw) => gw.id === w.id)
+                                ? { ...w, removed: allKept }
+                                : w
+                            ));
+                          }}
                           className="text-[11px] text-neutral-700 hover:text-green-400 transition-colors"
-                          title="Restore entire utterance"
+                          title="Toggle entire utterance keep/remove"
                         >
                           Speaker {group.speaker}
                         </button>
                       )}
-                      {group.words[0]?.fragmentWarning && (
-                        <span
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-500/15 border border-yellow-500/40 text-yellow-400"
-                          title="This line may start mid-sentence — review before exporting"
-                        >
-                          ⚠ fragment?
-                        </span>
-                      )}
-                      {group.words[0]?.boundaryWarning && (
-                        <span
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-500/15 border border-orange-500/40 text-orange-400"
-                          title="Large removed gap before this line — may be a split sentence, review manually"
-                        >
-                          ⚡ boundary?
-                        </span>
-                      )}
-                      {group.words.some((w) => w.coherenceWarning) && (
-                        <span
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 border border-amber-500/40 text-amber-400"
-                          title="Coherence check flagged this clip — a viewer may find it confusing"
-                        >
-                          👁 review
-                        </span>
-                      )}
                     </div>
 
                     {/* Words */}
-                    <div className={`flex flex-wrap gap-x-[2px] gap-y-0.5 leading-relaxed ${allRemoved ? "opacity-30" : ""}`}>
+                    <div className="flex flex-wrap gap-x-[2px] gap-y-0.5 leading-relaxed">
                       {group.words.map((word) => {
                         const isSelected = selectedIds.has(word.id);
                         return (
@@ -462,14 +445,13 @@ export default function VideoEditor({ words, onChange, onContinue, videoSrc, fil
                             className={`
                               px-[3px] py-[1px] rounded text-[15px] leading-7 transition-colors cursor-pointer
                               ${word.removed
-                                ? "text-neutral-700 line-through decoration-neutral-700/50"
+                                ? isSelected
+                                  ? "bg-red-500/20 text-neutral-400"
+                                  : "text-neutral-400"
                                 : isSelected
                                   ? "bg-violet-500/30 text-white"
-                                  : word.coherenceWarning
-                                    ? "text-amber-200 bg-amber-500/10 hover:bg-amber-500/20"
-                                    : "text-neutral-200 hover:bg-neutral-700/30"
+                                  : "text-green-300 hover:bg-green-500/10"
                               }
-                              ${isSelected && word.removed ? "bg-red-500/20 text-neutral-500" : ""}
                             `}
                           >
                             {word.text}

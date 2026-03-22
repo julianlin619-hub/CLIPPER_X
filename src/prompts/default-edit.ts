@@ -30,19 +30,52 @@ The hook is always grounded in the **Caller's** opening lines. It must convey:
 Start from the Caller's first substantive lines. Do not open the clip with the Host. The hook does not need to be a single condensed block — it can emerge across several short kept or trimmed lines. Protect the numbers and business context. Do not cut them in the name of tightening the opening.
 
 ### Phase 2: Identify the PAYOFF(s)
-The payoff is almost always delivered by the **Host** — their key insight, reframe, diagnosis, or concrete action plan. Look for the Host's strongest moment: a sharp diagnosis, a surprising reframe, a specific framework, or a direct instruction.
 
-A clip can have 1–2 payoffs. Keep both if the transcript genuinely contains two distinct valuable Host insights that each stand on their own.
+The payoff is the moment that makes the clip worth watching — the thing a viewer would repeat to someone else afterward. It is almost always delivered by the Host. A clip can have 1–2 payoffs. Keep both only if they are genuinely distinct moments (not the same idea restated).
 
-Each payoff must:
-- Be a concrete statement, not vague advice
-- Be understandable to a viewer who has seen the hook
-- Have contrast or tension (contrarian insight, sharp reframe, surprising number, actionable framework)
+A payoff does ONE or more of these things:
+
+1. **Names what the Caller couldn't see.** The Host states the actual problem or situation, and it differs from how the Caller described it. Verify: compare the Caller's framing in their opening lines to what the Host says. If the Host is pointing at a different root cause or using different words for the problem, this qualifies.
+
+2. **States a rule or principle that applies beyond this Caller.** The Host says something in general form — not just "you should do X" but a broader principle a viewer in a different industry could use. Look for: "the way this works is," specific ratios or thresholds, or sentences that would make sense as a standalone text overlay with no context.
+
+3. **Gives a specific tactical sequence.** The Host tells the Caller exactly what to do, in what order, with enough detail that someone could execute it. Must contain at least two concrete actions and a clear order or condition connecting them.
+
+4. **Attaches a surprising number or ratio to a decision.** The Host provides a specific number, price point, multiple, or threshold that changes how the Caller evaluates their situation. The number should be larger or smaller than what the audience would intuitively expect.
+
+5. **Reduces a complex situation to a single choice.** The Host collapses everything discussed into one binary or one variable. Look for: a clear either/or, or a single lever named while everything else is discarded.
+
+A payoff is NOT:
+- A generic statement with no specific mechanism, number, or action ("just focus on what matters," "think bigger")
+- The Host agreeing with or restating what the Caller already said
+- A joke, hype moment, or emotional reaction without substance
+- Advice so niche that a general audience wouldn't understand or care
 
 Remove everything after the last payoff lands. Nothing trails.
 
 ### Phase 3: Connect the MEAT
-The meat is everything between the hook and the payoff(s). Keep the lines that build toward the insight — including full analogies, frameworks, and diagnostic exchanges if they are needed for the payoff to land. Do not reduce to the bare minimum if that would make the insight feel abrupt or unsupported. Cut tangents, repeated examples, and side stories that make the same point twice.
+
+The meat is everything between the hook and the payoff(s). Its job is to build toward the payoff so that when it lands, the viewer has enough context to feel the weight of it.
+
+#### What to KEEP in the meat:
+
+1. **Tension and friction.** Prioritize moments where the Host and Caller are not aligned — these are the moments that make a viewer lean in. Specifically look for:
+   - **Direct contradiction:** The Host tells the Caller they are wrong, rejects their framing, or corrects them ("Have to or choose to?"). Verify: the Host's statement says something different or opposite from what the Caller just said.
+   - **Uncomfortable questions:** The Host asks something the Caller struggles to answer, deflects from, or admits they don't know. Look for: pauses, hedging ("I think," "probably"), admissions of avoidance ("I kinda just gave up").
+   - **Escalating pressure:** The Host repeats or stacks questions that push the Caller further — not accepting the first answer, raising the stakes with each follow-up. Look for 2+ consecutive Host lines that narrow the Caller's room to justify their current approach.
+   - **Caller resistance:** The Caller pushes back, expresses doubt, or defends their current approach after the Host has given a direction. Look for "but," "I've tried," or the Caller introducing new objections.
+   - **Emotional exposure:** The Caller reveals something vulnerable — fear, ego, a personal limitation — that raises the stakes. The Caller is talking about who they ARE, not what their business DOES.
+
+2. **Setup that the payoff depends on.** If the payoff references a number, analogy, or framework, keep the moment where that number/analogy/framework is first introduced. If cutting a line would make the payoff confusing to a first-time viewer, keep it.
+
+3. **Diagnostic exchanges that build momentum.** Quick back-and-forth where the Host is extracting information that leads directly to the payoff. Keep these tight — they create pacing and make the payoff feel earned.
+
+#### What to CUT from the meat:
+
+- Back-and-forth that exchanges information without friction (flat Q&A where the Caller simply confirms numbers)
+- Tangents, side stories, or repeated examples that make the same point twice
+- Friendly banter, jokes, or rapport-building that doesn't advance toward the payoff
+- Any moment where the Host restates the Caller's problem and the Caller just confirms it (that's alignment, not momentum)
 
 ### Phase 4: Final read-through
 Read only the KEEP and TRIM lines in sequence as a first-time viewer would hear them. Check:
@@ -68,11 +101,16 @@ For each utterance in the input transcript, output exactly one decision line:
 \`[index] REMOVE\` — cut this utterance entirely
 \`[index] TRIM: <trimmed text>\` — replace the utterance text with the trimmed version (timestamps are preserved from the original)
 
+Each decision line may include an optional inline rationale after \`//\`:
+\`[index] REMOVE // filler, no substance\`
+\`[index] KEEP // hook — caller's situation and numbers\`
+\`[index] TRIM: <trimmed text> // payoff type 2 — universal principle\`
+
 Rules:
 - Output one decision per line, in index order
 - Every index from the input MUST have a decision (no gaps)
 - TRIM text must use ONLY words from the original utterance (no new words, no fabrication)
-- No commentary, no headers, no explanations — ONLY decision lines
+- Always include a // rationale on every line — one short phrase stating which phase (hook/meat/payoff/cut) and why
 ---
 
 ## EXAMPLES
@@ -129,49 +167,49 @@ RAW TRANSCRIPT:
 
 DECISIONS:
 
-[0] REMOVE
-[1] REMOVE
-[2] TRIM: I teach crafters and mostly women, 45,
-[3] KEEP
-[4] TRIM: So my business is made it did over 7 figures last year
-[5] REMOVE
-[6] REMOVE
-[7] REMOVE
-[8] REMOVE
-[9] REMOVE
-[10] REMOVE
-[11] KEEP
-[12] TRIM: USD per year, but my constraint, I think, is thirty day cash.
-[13] TRIM: So I just feel like Mhmm. I can't scale profitably.
-[14] REMOVE
-[15] REMOVE
-[16] REMOVE
-[17] REMOVE
-[18] REMOVE
-[19] TRIM: So you're at you're at $60 is what you're collecting in cash. It's costing you 90. You're not sure on LTV, but you feel comfortable saying $300.
-[20] REMOVE
-[21] REMOVE
-[22] REMOVE
-[23] REMOVE
-[24] REMOVE
-[25] REMOVE
-[26] REMOVE
-[27] REMOVE
-[28] TRIM: I honestly think you you could you can very easily solve this with two steps. Number one is that when you're doing a five day selling event, you need to sell the expensive thing.
-[29] KEEP
-[30] TRIM: So your fear is I'm gonna I wanna sell this recurring thing because I don't wanna lose anybody. But the reality is that if you have five days with people, you could to a consumer audience is what you're selling to. 300 to 600 is the impulse purchase window for a consumer. 300 is the low end, 600 is the high end. That's your range. You could probably go up a little bit, and you'd still probably you'll make more money at 5 or 600. But you need to sell the annual upfront. Alright? That's number one.
-[31] REMOVE
-[32] REMOVE
-[33] REMOVE
-[34] REMOVE
-[35] REMOVE
-[36] TRIM: Now let me give you a little a little something else. There's probably some sort of what I'll call physical product premium that you can add to this.
-[37] REMOVE
-[38] TRIM: So the a consumer's willingness to purchase goes up dramatically if it's physical. And so I think you'd actually be able to push a thousand dollar price point if you included the physical thing.
-[39] TRIM: Cool. And if people ask for monthly, because they would, do I do I just say no?
-[40] TRIM: Well, I would just say like throw at them. I I would say like, we have options for monthly, but you're not gonna get these bonuses that I just spent all this time talking about, and they're gonna be that sounds fun. Do not lie, but you can make it less convenient to purchase the thing you don't want them to purchase.
-[41] REMOVE
-[42] REMOVE
+[0] REMOVE // pre-show banter, no substance
+[1] REMOVE // filler
+[2] TRIM: I teach crafters and mostly women, 45, // hook — caller identity
+[3] KEEP // hook — caller's niche and product
+[4] TRIM: So my business is made it did over 7 figures last year // hook — revenue number
+[5] REMOVE // filler agreement
+[6] REMOVE // filler
+[7] REMOVE // filler
+[8] REMOVE // filler
+[9] REMOVE // filler
+[10] REMOVE // filler
+[11] KEEP // hook — goal number ($3M)
+[12] TRIM: USD per year, but my constraint, I think, is thirty day cash. // hook — core problem
+[13] TRIM: So I just feel like Mhmm. I can't scale profitably. // hook — stakes
+[14] REMOVE // diagnostic detail, no friction
+[15] REMOVE // host math, no friction
+[16] REMOVE // caller clarification, flat Q&A
+[17] REMOVE // platform question, tangent
+[18] REMOVE // platform tangent
+[19] TRIM: So you're at you're at $60 is what you're collecting in cash. It's costing you 90. You're not sure on LTV, but you feel comfortable saying $300. // meat — host summarising numbers, sets up payoff
+[20] REMOVE // flat confirmation
+[21] REMOVE // flat confirmation
+[22] REMOVE // flat confirmation
+[23] REMOVE // flat confirmation
+[24] REMOVE // flat Q&A
+[25] REMOVE // flat confirmation
+[26] REMOVE // tangent, same point restated
+[27] REMOVE // tangent
+[28] TRIM: I honestly think you you could you can very easily solve this with two steps. Number one is that when you're doing a five day selling event, you need to sell the expensive thing. // payoff type 3 — tactical sequence begins
+[29] KEEP // payoff — caller acknowledges
+[30] TRIM: So your fear is I'm gonna I wanna sell this recurring thing because I don't wanna lose anybody. But the reality is that if you have five days with people, you could to a consumer audience is what you're selling to. 300 to 600 is the impulse purchase window for a consumer. 300 is the low end, 600 is the high end. That's your range. You could probably go up a little bit, and you'd still probably you'll make more money at 5 or 600. But you need to sell the annual upfront. Alright? That's number one. // payoff type 4 — surprising number (300–600 impulse window)
+[31] REMOVE // filler agreement
+[32] REMOVE // continuation of tactic, same payoff already landed
+[33] REMOVE // filler
+[34] REMOVE // filler
+[35] REMOVE // caller restating same point
+[36] TRIM: Now let me give you a little a little something else. There's probably some sort of what I'll call physical product premium that you can add to this. // payoff type 3 — second distinct tactic
+[37] REMOVE // caller tangent
+[38] TRIM: So the a consumer's willingness to purchase goes up dramatically if it's physical. And so I think you'd actually be able to push a thousand dollar price point if you included the physical thing. // payoff type 4 — $1000 price point number
+[39] TRIM: Cool. And if people ask for monthly, because they would, do I do I just say no? // meat — friction question, leads to payoff
+[40] TRIM: Well, I would just say like throw at them. I I would say like, we have options for monthly, but you're not gonna get these bonuses that I just spent all this time talking about, and they're gonna be that sounds fun. Do not lie, but you can make it less convenient to purchase the thing you don't want them to purchase. // payoff — universal principle (make it inconvenient, not dishonest)
+[41] REMOVE // sign-off
+[42] REMOVE // sign-off and unrelated banter
 
 
 --------------------------------
@@ -215,38 +253,38 @@ RAW TRANSCRIPT:
 
 DECISIONS:
 
-[0] TRIM: My name is Matthew. I sell premium catering experiences to proper clients looking to celebrate milestone events in Sydney. We grew about 2,800,000 this year with 40% net profit and approximately 8,000,000 in two years. Let's go. Main constraint, season seasonality. So we do about 65% of our annual revenue in six months. And if I don't solve this, I either say no to demand in summer, or I am supply constrained Or I am overstuffed in winter.
-[1] TRIM: Yeah. So, one thing right off the bat I will say is that this is a feature, not a bug of the industry that you're in. Same thing as lawn care guys, same thing as guys who do snow plowing.
-[2] REMOVE
-[3] REMOVE
-[4] REMOVE
-[5] REMOVE
-[6] REMOVE
-[7] REMOVE
-[8] REMOVE
-[9] REMOVE
-[10] REMOVE
-[11] REMOVE
-[12] TRIM: We're still profitable. We have a really good we have strong gross profit and strong margins, so we're still good.
-[13] REMOVE
-[14] REMOVE
-[15] REMOVE
-[16] REMOVE
-[17] REMOVE
-[18] REMOVE
-[19] REMOVE
-[20] REMOVE
-[21] TRIM: the, like, the problem that we're trying to solve here, like, you are profitable. You're running 40% even in the fact that there's on and off cycle. So to grow the business, we could ignore the fact that it's lumpy. I'll give you two examples of this. So Harry and David's, it's a chocolate company here in The US, does, like, 100% of their annual profit in the month of December. And then the other eleven months of the year, they have their mall location, and they just lose money. And so I think what we what we need to replace is the difference between volatility and risk. So you can have something that is volatile but not risky. It's volatile in the fact that it changes a lot month to month to month, but it's not risky because it's predictable. You know that every season this is going to happen. And if we know it's going to happen, then we can predict it. If we can predict it, we can plan for it. Right? So all that to say, if we change nothing about the business, but you simply did twice as much, what stops you from doing that?
-[22] KEEP
-[23] TRIM: But you're just gonna have a slow season and a hot season, and that's fine, especially especially since you're not losing money in the off season. So I don't think you actually have a big problem to solve here. Think we just need to do more of what's working. I wish I could pull some magic, business model out of a hat, but if you're profitable all the months of the year and then some months you just make more money,
-[24] REMOVE
-[25] REMOVE
-[26] TRIM: What I would like to do is just focus all of your time on not trying to solve that problem and solving the more important problem, which is like how do we double PPC and probably get meta ads going?
-[27] KEEP
-[28] TRIM: Yep. So it's like if you can double the business doing one thing, why do four?
-[29] TRIM: That's it, man. I mean, the whole point of of theory of constraints is focus, and it's just being able to say all the things you say no to. Like, there's such limited resources in a small business, the biggest one being your time, your effort, and your mental bandwidth. If you can just say, like, I'm not looking at this anymore because this is just a feature of my business, and I'm so grateful because all my competitors will be distracted by the shiny object. Like, let them worry about that while you just keep crushing it.
-[30] REMOVE
-[31] REMOVE
+[0] TRIM: My name is Matthew. I sell premium catering experiences to proper clients looking to celebrate milestone events in Sydney. We grew about 2,800,000 this year with 40% net profit and approximately 8,000,000 in two years. Let's go. Main constraint, season seasonality. So we do about 65% of our annual revenue in six months. And if I don't solve this, I either say no to demand in summer, or I am supply constrained Or I am overstuffed in winter. // hook — caller identity, revenue, goal, stakes
+[1] TRIM: Yeah. So, one thing right off the bat I will say is that this is a feature, not a bug of the industry that you're in. Same thing as lawn care guys, same thing as guys who do snow plowing. // payoff type 1 — host reframes caller's problem (bug → feature)
+[2] REMOVE // filler
+[3] REMOVE // filler
+[4] REMOVE // filler
+[5] REMOVE // flat Q&A, no friction
+[6] REMOVE // flat Q&A
+[7] REMOVE // flat Q&A
+[8] REMOVE // flat Q&A, tangent
+[9] REMOVE // host challenges framing but conclusion same
+[10] REMOVE // flat confirmation
+[11] REMOVE // flat Q&A
+[12] TRIM: We're still profitable. We have a really good we have strong gross profit and strong margins, so we're still good. // meat — setup for payoff (profitable even in off-season)
+[13] REMOVE // flat Q&A
+[14] REMOVE // flat Q&A
+[15] REMOVE // flat Q&A
+[16] REMOVE // flat Q&A
+[17] REMOVE // flat Q&A
+[18] REMOVE // flat Q&A
+[19] REMOVE // flat Q&A
+[20] REMOVE // flat Q&A
+[21] TRIM: the, like, the problem that we're trying to solve here, like, you are profitable. You're running 40% even in the fact that there's on and off cycle. So to grow the business, we could ignore the fact that it's lumpy. I'll give you two examples of this. So Harry and David's, it's a chocolate company here in The US, does, like, 100% of their annual profit in the month of December. And then the other eleven months of the year, they have their mall location, and they just lose money. And so I think what we what we need to replace is the difference between volatility and risk. So you can have something that is volatile but not risky. It's volatile in the fact that it changes a lot month to month to month, but it's not risky because it's predictable. You know that every season this is going to happen. And if we know it's going to happen, then we can predict it. If we can predict it, we can plan for it. Right? So all that to say, if we change nothing about the business, but you simply did twice as much, what stops you from doing that? // payoff type 2 — universal principle: volatile ≠ risky
+[22] KEEP // payoff — caller confronted with simplest question
+[23] TRIM: But you're just gonna have a slow season and a hot season, and that's fine, especially especially since you're not losing money in the off season. So I don't think you actually have a big problem to solve here. Think we just need to do more of what's working. I wish I could pull some magic, business model out of a hat, but if you're profitable all the months of the year and then some months you just make more money, // payoff type 5 — collapses complexity to one conclusion
+[24] REMOVE // filler
+[25] REMOVE // filler
+[26] TRIM: What I would like to do is just focus all of your time on not trying to solve that problem and solving the more important problem, which is like how do we double PPC and probably get meta ads going? // payoff type 3 — tactical redirect (single lever)
+[27] KEEP // payoff — principle stated simply
+[28] TRIM: Yep. So it's like if you can double the business doing one thing, why do four? // payoff — caller lands the insight
+[29] TRIM: That's it, man. I mean, the whole point of of theory of constraints is focus, and it's just being able to say all the things you say no to. Like, there's such limited resources in a small business, the biggest one being your time, your effort, and your mental bandwidth. If you can just say, like, I'm not looking at this anymore because this is just a feature of my business, and I'm so grateful because all my competitors will be distracted by the shiny object. Like, let them worry about that while you just keep crushing it. // payoff type 2 — theory of constraints as universal principle
+[30] REMOVE // sign-off
+[31] REMOVE // sign-off
 
 ---
 
