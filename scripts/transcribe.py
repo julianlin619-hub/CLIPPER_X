@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 
+import numpy as np
 from deepgram import AsyncDeepgramClient
 
 MAX_DEEPGRAM_FILE_SIZE = 25 * 1024 * 1024  # 25MB upload limit
@@ -61,6 +62,71 @@ def get_channel_count(path: str) -> int:
         return int(output.strip().split("\n")[0])
     except Exception:
         return 1
+
+
+def _read_stereo_pcm(path: str, max_seconds: int = 300) -> Optional[np.ndarray]:
+    """Decode up to max_seconds of audio as 16kHz stereo int16 PCM.
+
+    Returns an (N, 2) int16 array, or None on any failure / non-stereo source.
+    """
+    result = subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-v", "error",
+            "-i", path,
+            "-t", str(max_seconds),
+            "-vn", "-ac", "2", "-ar", "16000",
+            "-f", "s16le", "-",
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0 or not result.stdout:
+        return None
+    samples = np.frombuffer(result.stdout, dtype=np.int16)
+    if samples.size < 2 or samples.size % 2 != 0:
+        return None
+    return samples.reshape(-1, 2)
+
+
+def is_channel_isolated(path: str, threshold: float = 0.65) -> bool:
+    """True only when L and R envelopes are clearly complementary.
+
+    Compares per-50ms-window RMS envelopes of L vs R via Pearson correlation.
+    - Channel-isolated (host on L, caller on R): low corr (~0.2-0.5) -> True
+    - Cross-talk stereo: high corr (~0.85-0.99) -> False
+    - Mono-duplicated: corr ~1.0 -> False
+    Any error / ambiguity returns False so the caller falls back to mono+diarize.
+    """
+    try:
+        pcm = _read_stereo_pcm(path)
+        if pcm is None or pcm.shape[0] < 16000 * 5:
+            return False
+
+        win = 800  # 50ms at 16kHz
+        n_windows = pcm.shape[0] // win
+        if n_windows < 50:
+            return False
+
+        framed = pcm[: n_windows * win].astype(np.float32).reshape(n_windows, win, 2)
+        rms = np.sqrt((framed ** 2).mean(axis=1))
+        left_env, right_env = rms[:, 0], rms[:, 1]
+
+        noise_floor = max(50.0, 0.01 * float(rms.max()))
+        voiced = (left_env > noise_floor) | (right_env > noise_floor)
+        if voiced.sum() < 50:
+            return False
+        left_env = left_env[voiced]
+        right_env = right_env[voiced]
+
+        if left_env.std() < 1e-3 or right_env.std() < 1e-3:
+            return False
+
+        corr = float(np.corrcoef(left_env, right_env)[0, 1])
+        if not np.isfinite(corr):
+            return False
+
+        return corr < threshold
+    except Exception:
+        return False
 
 
 def extract_channel(video_path: str, channel: int) -> str:
@@ -375,10 +441,12 @@ async def main() -> None:
 
             channels = get_channel_count(audio_path)
             print(json.dumps({"status": "channel_detected", "channels": channels}), flush=True)
-            if channels >= 2:
-                # Stereo video: left channel = host (speaker 0), right = caller (speaker 1)
+            if channels >= 2 and is_channel_isolated(audio_path):
+                # Channel-isolated stereo: left = host (speaker 0), right = caller (speaker 1)
                 await run_stereo_transcription(audio_path, audio_offset=audio_offset)
                 return
+            # Mono OR cross-talk stereo -> fall through to mono extraction + diarization.
+            # The mono ffmpeg call below uses -ac 1, which downmixes cross-talk stereo for us.
 
             # Mono video: fall through to standard extraction + diarization
             print(json.dumps({"status": "extracting_audio"}), flush=True)
