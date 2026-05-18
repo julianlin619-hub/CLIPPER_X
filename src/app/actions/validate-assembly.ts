@@ -157,13 +157,7 @@ async function callWithRetry(
         return parseToolInput(input);
       }
 
-      // Fallback: try text parsing if no tool call (shouldn't happen with tool_choice)
-      const textBlock = result.content.find((b) => b.type === "text");
-      if (textBlock && textBlock.type === "text") {
-        return parseTextFallback(textBlock.text);
-      }
-
-      return { remove: [], flag: [] };
+      throw new Error("validate-assembly: response contained no tool_use block");
     } catch (err) {
       const status = (err as { status?: number })?.status;
       if (status === 429 && attempt < MAX_RETRIES) {
@@ -183,22 +177,6 @@ function parseToolInput(input: ValidationToolInput): { remove: number[]; flag: n
   for (const issue of input.issues) {
     if (issue.action === "REMOVE") remove.push(issue.clip_index);
     else flag.push(issue.clip_index);
-  }
-  return { remove, flag };
-}
-
-/** Fallback text parser in case tool calling doesn't fire. */
-function parseTextFallback(text: string): { remove: number[]; flag: number[] } {
-  const remove: number[] = [];
-  const flag: number[] = [];
-  if (text.trim() === "ALL_VALID") return { remove, flag };
-  const pattern = /^\[(\d+)\]\s+(REMOVE|FLAG)/im;
-  for (const line of text.split("\n")) {
-    const match = line.trim().match(pattern);
-    if (!match) continue;
-    const idx = parseInt(match[1], 10);
-    if (match[2].toUpperCase() === "REMOVE") remove.push(idx);
-    else flag.push(idx);
   }
   return { remove, flag };
 }

@@ -16,34 +16,45 @@ interface ToolDecision {
 /**
  * Parse the LLM's tool-call JSON output into LineDecision[].
  *
- * The response is now JSON from the submit_edit_decisions tool call:
+ * Expects a complete JSON object matching the submit_edit_decisions tool input:
  *   { "decisions": [{ "index": 0, "action": "KEEP" }, ...] }
  *
- * Falls back to the legacy regex parser for backward compatibility.
+ * Throws on malformed input — non-JSON, partial JSON, unknown action values,
+ * missing/duplicate/out-of-range indices, TRIM without trimmed_text. Loud
+ * failures keep tool-use regressions from silently turning into all-KEEP.
  *
- * Lines not listed default to KEEP (safe fallback — never silently cut content).
- * Missing indices are recorded in missingIndices so callers can warn/flag them.
+ * Indices omitted from a well-formed response default to KEEP (safe — never
+ * silently deletes content) and are reported via missingIndices.
  */
 export function parseIndexedDecisions(
   response: string,
   totalLines: number,
   startIndex: number
 ): ParseIndexedDecisionsResult {
-  // Try JSON (tool calling format) first
   const trimmed = response.trim();
-  if (trimmed.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(trimmed) as { decisions?: ToolDecision[] };
-      if (Array.isArray(parsed.decisions)) {
-        return buildFromToolDecisions(parsed.decisions, totalLines, startIndex);
-      }
-    } catch {
-      // JSON parse failed — fall through to legacy parser
-    }
+  if (!trimmed) {
+    throw new Error("parseIndexedDecisions: empty response");
+  }
+  if (!trimmed.startsWith("{")) {
+    throw new Error(
+      `parseIndexedDecisions: expected JSON tool-call output, got: ${trimmed.slice(0, 80)}…`
+    );
   }
 
-  // Legacy regex parser for backward compatibility
-  return parseLegacyFormat(response, totalLines, startIndex);
+  let parsed: { decisions?: ToolDecision[] };
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (err) {
+    throw new Error(
+      `parseIndexedDecisions: invalid JSON (${err instanceof Error ? err.message : String(err)})`
+    );
+  }
+
+  if (!Array.isArray(parsed.decisions)) {
+    throw new Error("parseIndexedDecisions: missing 'decisions' array");
+  }
+
+  return buildFromToolDecisions(parsed.decisions, totalLines, startIndex);
 }
 
 function buildFromToolDecisions(
@@ -52,80 +63,41 @@ function buildFromToolDecisions(
   startIndex: number
 ): ParseIndexedDecisionsResult {
   const decisionMap = new Map<number, LineDecision>();
+  const endExclusive = startIndex + totalLines;
 
   for (const d of toolDecisions) {
-    const action = d.action.toLowerCase() as "keep" | "remove" | "trim";
-
-    if (action === "trim" && !d.trimmed_text) {
-      // TRIM without text => treat as KEEP (safe fallback)
-      decisionMap.set(d.index, { index: d.index, action: "keep" });
-    } else {
-      decisionMap.set(d.index, {
-        index: d.index,
-        action,
-        ...(action === "trim" && d.trimmed_text ? { text: d.trimmed_text } : {}),
-      });
+    if (!Number.isInteger(d.index)) {
+      throw new Error(
+        `parseIndexedDecisions: decision missing integer 'index' (got ${JSON.stringify(d.index)})`
+      );
     }
-  }
-
-  return fillMissing(decisionMap, totalLines, startIndex);
-}
-
-function parseLegacyFormat(
-  response: string,
-  totalLines: number,
-  startIndex: number
-): ParseIndexedDecisionsResult {
-  const decisionMap = new Map<number, LineDecision>();
-
-  // Strip markdown code fences if present
-  let cleaned = response.trim();
-  if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
-  }
-
-  // Parse each line. Format: [index] ACTION[: text] [// rationale]
-  const linePattern = /^\[(\d+)\]\s+(KEEP|REMOVE|TRIM)(.*)?$/i;
-
-  for (const line of cleaned.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    const match = trimmed.match(linePattern);
-    if (!match) continue;
-
-    const index = parseInt(match[1], 10);
-    const action = match[2].toLowerCase() as "keep" | "remove" | "trim";
-
-    // Parse optional ": text" and optional "// rationale" from the rest of the line
-    let rest = (match[3] ?? "").trim();
-    let text: string | undefined;
-    let rationale: string | undefined;
-
-    if (rest.startsWith(":")) rest = rest.slice(1).trim();
-
-    const commentIdx = rest.indexOf(" // ");
-    if (commentIdx !== -1) {
-      const beforeComment = rest.slice(0, commentIdx).trim();
-      text = beforeComment || undefined;
-      rationale = rest.slice(commentIdx + 4).trim() || undefined;
-    } else if (rest.startsWith("// ")) {
-      rationale = rest.slice(3).trim() || undefined;
-    } else {
-      text = rest || undefined;
+    if (d.index < startIndex || d.index >= endExclusive) {
+      throw new Error(
+        `parseIndexedDecisions: index ${d.index} out of range [${startIndex}, ${endExclusive})`
+      );
+    }
+    if (decisionMap.has(d.index)) {
+      throw new Error(`parseIndexedDecisions: duplicate decision for index ${d.index}`);
     }
 
-    if (action === "trim" && !text) {
-      // TRIM without text => treat as KEEP (safe fallback)
-      decisionMap.set(index, { index, action: "keep", ...(rationale ? { rationale } : {}) });
-    } else {
-      decisionMap.set(index, {
-        index,
-        action,
-        ...(text ? { text } : {}),
-        ...(rationale ? { rationale } : {}),
-      });
+    const upperAction = typeof d.action === "string" ? d.action.toUpperCase() : "";
+    if (upperAction !== "KEEP" && upperAction !== "REMOVE" && upperAction !== "TRIM") {
+      throw new Error(
+        `parseIndexedDecisions: index ${d.index} has invalid action ${JSON.stringify(d.action)} (expected KEEP|REMOVE|TRIM)`
+      );
     }
+    if (upperAction === "TRIM" && !d.trimmed_text) {
+      throw new Error(
+        `parseIndexedDecisions: index ${d.index} is TRIM but missing trimmed_text`
+      );
+    }
+
+    const action = upperAction.toLowerCase() as "keep" | "remove" | "trim";
+    decisionMap.set(d.index, {
+      index: d.index,
+      action,
+      ...(action === "trim" ? { text: d.trimmed_text } : {}),
+    });
   }
 
   return fillMissing(decisionMap, totalLines, startIndex);

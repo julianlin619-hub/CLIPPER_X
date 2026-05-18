@@ -102,8 +102,12 @@ export default function PromptStep({ transcript, speakerMap, onComplete }: Props
   }, [transcript, speakerMap]);
 
   const handleContinue = useCallback(() => {
-    const { decisions } = parseIndexedDecisions(rawOutput, transcript.length, 0);
-    onComplete(decisions);
+    try {
+      const { decisions } = parseIndexedDecisions(rawOutput, transcript.length, 0);
+      onComplete(decisions);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to parse LLM output");
+    }
   }, [rawOutput, transcript.length, onComplete]);
 
   useEffect(() => { handleGenerate(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -146,18 +150,24 @@ export default function PromptStep({ transcript, speakerMap, onComplete }: Props
               : view === "transcript"
               ? transcript.map((t, i) => `[${i}] ${getLabel(t, speakerMap)}: ${t.text.trim()}`).join("\n")
               : (() => {
-                  const { decisions } = parseIndexedDecisions(rawOutput, transcript.length, 0);
-                  const decisionMap = new Map(decisions.map((d) => [d.index, d]));
-                  return transcript
-                    .map((t, i) => {
-                      const d = decisionMap.get(i);
-                      const action = d?.action ?? "keep";
-                      if (action === "remove") return null;
-                      const text = action === "trim" && d?.text ? d.text : t.text.trim();
-                      return `${getLabel(t, speakerMap)}: ${text}`;
-                    })
-                    .filter(Boolean)
-                    .join("\n\n");
+                  try {
+                    const { decisions } = parseIndexedDecisions(rawOutput, transcript.length, 0);
+                    const decisionMap = new Map(decisions.map((d) => [d.index, d]));
+                    return transcript
+                      .map((t, i) => {
+                        const d = decisionMap.get(i);
+                        const action = d?.action ?? "keep";
+                        if (action === "remove") return null;
+                        const text = action === "trim" && d?.text ? d.text : t.text.trim();
+                        return `${getLabel(t, speakerMap)}: ${text}`;
+                      })
+                      .filter(Boolean)
+                      .join("\n\n");
+                  } catch {
+                    return generating
+                      ? "Generating edited preview…"
+                      : "Edited preview unavailable — see LLM Output tab.";
+                  }
                 })()}
           </pre>
         </div>
