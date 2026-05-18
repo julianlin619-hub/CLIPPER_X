@@ -94,6 +94,9 @@ export async function POST(req: NextRequest) {
     messages: [{ role: "user", content: userMessage }],
   });
 
+  const shouldDumpFixture = process.env.CLIPPER_DUMP_FIXTURE === "1";
+  let capturedToolInput = "";
+
   // Stream the tool call's JSON input to the client as it's generated
   const readable = new ReadableStream({
     async start(controller) {
@@ -103,13 +106,38 @@ export async function POST(req: NextRequest) {
             chunk.type === "content_block_delta" &&
             chunk.delta.type === "input_json_delta"
           ) {
-            controller.enqueue(new TextEncoder().encode(chunk.delta.partial_json));
+            const piece = chunk.delta.partial_json;
+            controller.enqueue(new TextEncoder().encode(piece));
+            if (shouldDumpFixture) capturedToolInput += piece;
           }
+        }
+        controller.close();
+
+        if (shouldDumpFixture && capturedToolInput) {
+          const fs = await import("node:fs/promises");
+          const path = await import("node:path");
+          const dir = path.join(process.cwd(), "src/lib/editor/__fixtures__");
+          await fs.mkdir(dir, { recursive: true });
+          const file = path.join(dir, `live-decisions-${Date.now()}.json`);
+          await fs.writeFile(
+            file,
+            JSON.stringify(
+              {
+                capturedAt: new Date().toISOString(),
+                model: "claude-sonnet-4-6",
+                transcript,
+                prompt,
+                speakerMap: resolvedMap ?? null,
+                rawToolInput: capturedToolInput,
+              },
+              null,
+              2,
+            ),
+          );
+          console.log(`[clip-preview] fixture dumped → ${file}`);
         }
       } catch (err) {
         controller.error(err);
-      } finally {
-        controller.close();
       }
     },
   });
