@@ -60,8 +60,13 @@ export function generateFCPXML(
 
       offsetFrames += durFrames;
 
+      // Connected-clip offset is in the parent's source-TC coordinate system,
+      // NOT the sequence timeline. For pre-synced A+B (sync handled upstream),
+      // B's offset and start are the same value — both reference the same
+      // source-TC moment as A's start. If per-cam sync offsets are ever added,
+      // this becomes: offset = A.start, start = A.start + B.syncOffset.
       const bClipLine = secondary
-        ? `\n              <asset-clip ref="r2" lane="1" offset="${offsetStr}" start="${startStr}" duration="${durStr}" />`
+        ? `\n              <asset-clip ref="r2" lane="1" offset="${startStr}" start="${startStr}" duration="${durStr}" />`
         : "";
 
       return `            <asset-clip ref="r1" offset="${offsetStr}" name="${escapeXml(seg.text.trim().substring(0, 60))}" start="${startStr}" duration="${durStr}" tcFormat="NDF">
