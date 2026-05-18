@@ -1,13 +1,10 @@
 import { execSync } from "child_process";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-export async function GET(req: NextRequest) {
-  const type = req.nextUrl.searchParams.get("type");
-  const prompt = type === "xml" ? "Select Multi-Cam XML file" : "Select Final MP4 video";
-
+export async function GET() {
   try {
     const result = execSync(
-      `osascript -e 'POSIX path of (choose file with prompt "${prompt}")'`,
+      `osascript -e 'POSIX path of (choose file with prompt "Select video file")'`,
       { timeout: 120000 }
     );
     return NextResponse.json({ path: result.toString().trim() });
