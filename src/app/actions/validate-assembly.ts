@@ -2,7 +2,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-sonnet-4-6";
 const CHUNK_SIZE = 50; // max clips per LLM call
 const MAX_RETRIES = 2;
 const RETRY_BASE_MS = 1000;
@@ -87,20 +87,83 @@ export interface ClipInput {
   afterContext: string | null;  // first ≤20 words of removed content after this clip
 }
 
+const VALIDATION_TOOL = {
+  name: "submit_validation" as const,
+  description:
+    "Submit the validation results for the reviewed clips. Use this tool to report any issues found.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      all_valid: {
+        type: "boolean" as const,
+        description: "True if every clip is coherent and no issues were found.",
+      },
+      issues: {
+        type: "array" as const,
+        description: "List of problematic clips. Empty array if all_valid is true.",
+        items: {
+          type: "object" as const,
+          properties: {
+            clip_index: {
+              type: "integer" as const,
+              description: "The 0-based clip index from the input.",
+            },
+            action: {
+              type: "string" as const,
+              enum: ["REMOVE", "FLAG"],
+              description:
+                "REMOVE for clearly broken clips; FLAG for borderline clips a human should review.",
+            },
+            reason: {
+              type: "string" as const,
+              description: "Brief explanation of the issue.",
+            },
+          },
+          required: ["clip_index", "action", "reason"],
+        },
+      },
+    },
+    required: ["all_valid", "issues"],
+  },
+};
+
+interface ValidationToolInput {
+  all_valid: boolean;
+  issues: { clip_index: number; action: "REMOVE" | "FLAG"; reason: string }[];
+}
+
 async function callWithRetry(
   anthropic: Anthropic,
   userMessage: string
-): Promise<string> {
+): Promise<{ remove: number[]; flag: number[] }> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const result = await anthropic.messages.create({
         model: MODEL,
-        max_tokens: 2048,
+        max_tokens: 4096,
         temperature: 0,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "low" },
         system: SYSTEM_PROMPT,
+        tools: [VALIDATION_TOOL],
+        tool_choice: { type: "auto" },
         messages: [{ role: "user", content: userMessage }],
       });
-      return result.content[0]?.type === "text" ? result.content[0].text : "";
+
+      // Extract the tool call result
+      const toolBlock = result.content.find((b) => b.type === "tool_use");
+      if (toolBlock && toolBlock.type === "tool_use") {
+        const input = toolBlock.input as ValidationToolInput;
+        return parseToolInput(input);
+      }
+
+      // Fallback: try text parsing if no tool call (shouldn't happen with tool_choice)
+      const textBlock = result.content.find((b) => b.type === "text");
+      if (textBlock && textBlock.type === "text") {
+        return parseTextFallback(textBlock.text);
+      }
+
+      return { remove: [], flag: [] };
     } catch (err) {
       const status = (err as { status?: number })?.status;
       if (status === 429 && attempt < MAX_RETRIES) {
@@ -110,10 +173,22 @@ async function callWithRetry(
       throw err;
     }
   }
-  return "";
+  return { remove: [], flag: [] };
 }
 
-function parseResponse(text: string): { remove: number[]; flag: number[] } {
+function parseToolInput(input: ValidationToolInput): { remove: number[]; flag: number[] } {
+  const remove: number[] = [];
+  const flag: number[] = [];
+  if (input.all_valid || !input.issues) return { remove, flag };
+  for (const issue of input.issues) {
+    if (issue.action === "REMOVE") remove.push(issue.clip_index);
+    else flag.push(issue.clip_index);
+  }
+  return { remove, flag };
+}
+
+/** Fallback text parser in case tool calling doesn't fire. */
+function parseTextFallback(text: string): { remove: number[]; flag: number[] } {
   const remove: number[] = [];
   const flag: number[] = [];
   if (text.trim() === "ALL_VALID") return { remove, flag };
@@ -121,7 +196,7 @@ function parseResponse(text: string): { remove: number[]; flag: number[] } {
   for (const line of text.split("\n")) {
     const match = line.trim().match(pattern);
     if (!match) continue;
-    const idx = parseInt(match[1], 10); // clipIndex is already absolute 0-based
+    const idx = parseInt(match[1], 10);
     if (match[2].toUpperCase() === "REMOVE") remove.push(idx);
     else flag.push(idx);
   }
@@ -168,10 +243,13 @@ export async function validateAssembledOutput(
       }
     }
 
-    for (const chunk of chunks) {
-      const userMessage = buildUserMessage(chunk);
-      const responseText = await callWithRetry(anthropic, userMessage);
-      const { remove, flag } = parseResponse(responseText);
+    const results = await Promise.all(
+      chunks.map(async (chunk) => {
+        const userMessage = buildUserMessage(chunk);
+        return callWithRetry(anthropic, userMessage);
+      })
+    );
+    for (const { remove, flag } of results) {
       allRemove.push(...remove);
       allFlag.push(...flag);
     }

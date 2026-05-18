@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CLIPPER is an AI-powered video editing pipeline. It transcribes long-form video, uses Claude to make keep/remove/trim decisions on the transcript, then exports a Final Cut Pro XML timeline. The main UI is a Next.js app running locally on macOS.
 
-**Core workflow:** Select video → Transcribe (Deepgram) → LLM editing (Claude, 3 parallel versions) → Word-level editor → Export FCPXML
+**Core workflow:** Select video → Transcribe (Deepgram) → LLM editing (Claude) → Word-level editor → Export FCPXML
 
 ## Setup
 
@@ -42,9 +42,9 @@ The main `Home` component owns all application state and drives a 4-step flow: `
 
 ### LLM Integration
 
-- **`src/app/api/clip-preview/route.ts`** — streams Claude editing decisions (3 parallel calls for 3 style variations)
+- **`src/app/api/clip-preview/route.ts`** — streams Claude editing decisions (single call, temperature 0.3)
 - **`src/app/actions/validate-assembly.ts`** — server action that runs a coherence check on assembled clips via Claude (`claude-sonnet-4-20250514`); chunked in groups of 50 with 2-clip overlap
-- **`src/lib/llm.ts`** — `buildCreativeMessage()` builds prompts; `parseIndexedDecisions()` parses `[index] KEEP/REMOVE/TRIM "text"` format
+- **`src/lib/llm.ts`** — `parseIndexedDecisions()` parses `[index] KEEP/REMOVE/TRIM "text"` format
 - **`src/prompts/default-edit.ts`** — default editing prompt (HOOK → MEAT → PAYOFF arc)
 
 ### Python Workers
@@ -79,7 +79,4 @@ The main `Home` component owns all application state and drives a 4-step flow: `
 ```
 DEEPGRAM_API_KEY       # required for transcription
 ANTHROPIC_API_KEY      # required for LLM editing
-OPENAI_API_KEY         # optional
-ACCESS_USERNAME        # optional basic auth
-ACCESS_PASSWORD        # optional basic auth
 ```

@@ -6,19 +6,72 @@ export interface ParseIndexedDecisionsResult {
   missingIndices: number[];
 }
 
+/** Shape of a single decision from the tool call JSON. */
+interface ToolDecision {
+  index: number;
+  action: "KEEP" | "REMOVE" | "TRIM";
+  trimmed_text?: string;
+}
+
 /**
- * Parse the LLM's index-based decision output into LineDecision[].
+ * Parse the LLM's tool-call JSON output into LineDecision[].
  *
- * Expected format (one per line):
- *   [0] REMOVE
- *   [1] KEEP
- *   [2] TRIM: Some trimmed text here
+ * The response is now JSON from the submit_edit_decisions tool call:
+ *   { "decisions": [{ "index": 0, "action": "KEEP" }, ...] }
+ *
+ * Falls back to the legacy regex parser for backward compatibility.
  *
  * Lines not listed default to KEEP (safe fallback — never silently cut content).
  * Missing indices are recorded in missingIndices so callers can warn/flag them.
- * Robust: ignores blank lines, commentary, and markdown fences.
  */
 export function parseIndexedDecisions(
+  response: string,
+  totalLines: number,
+  startIndex: number
+): ParseIndexedDecisionsResult {
+  // Try JSON (tool calling format) first
+  const trimmed = response.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as { decisions?: ToolDecision[] };
+      if (Array.isArray(parsed.decisions)) {
+        return buildFromToolDecisions(parsed.decisions, totalLines, startIndex);
+      }
+    } catch {
+      // JSON parse failed — fall through to legacy parser
+    }
+  }
+
+  // Legacy regex parser for backward compatibility
+  return parseLegacyFormat(response, totalLines, startIndex);
+}
+
+function buildFromToolDecisions(
+  toolDecisions: ToolDecision[],
+  totalLines: number,
+  startIndex: number
+): ParseIndexedDecisionsResult {
+  const decisionMap = new Map<number, LineDecision>();
+
+  for (const d of toolDecisions) {
+    const action = d.action.toLowerCase() as "keep" | "remove" | "trim";
+
+    if (action === "trim" && !d.trimmed_text) {
+      // TRIM without text => treat as KEEP (safe fallback)
+      decisionMap.set(d.index, { index: d.index, action: "keep" });
+    } else {
+      decisionMap.set(d.index, {
+        index: d.index,
+        action,
+        ...(action === "trim" && d.trimmed_text ? { text: d.trimmed_text } : {}),
+      });
+    }
+  }
+
+  return fillMissing(decisionMap, totalLines, startIndex);
+}
+
+function parseLegacyFormat(
   response: string,
   totalLines: number,
   startIndex: number
@@ -75,7 +128,14 @@ export function parseIndexedDecisions(
     }
   }
 
-  // Fill in missing indices as KEEP (safe default -- never silently cut content)
+  return fillMissing(decisionMap, totalLines, startIndex);
+}
+
+function fillMissing(
+  decisionMap: Map<number, LineDecision>,
+  totalLines: number,
+  startIndex: number
+): ParseIndexedDecisionsResult {
   const decisions: LineDecision[] = [];
   const missingIndices: number[] = [];
 
@@ -97,4 +157,3 @@ export function parseIndexedDecisions(
 
   return { decisions, missingIndices };
 }
-

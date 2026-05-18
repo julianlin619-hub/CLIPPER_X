@@ -3,7 +3,16 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { TranscriptEntry } from "@/lib/types";
+import { TranscriptEntry, WordTiming } from "@/lib/types";
+
+function getUtteranceSpeaker(words: WordTiming[] | undefined): number | null {
+  const counts = new Map<number, number>();
+  for (const w of words ?? []) {
+    if (w.speaker != null) counts.set(w.speaker, (counts.get(w.speaker) ?? 0) + 1);
+  }
+  if (!counts.size) return null;
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
 
 interface Props {
   onComplete: (
@@ -45,7 +54,32 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
   const [leftChState, setLeftChState] = useState<"idle" | "extracting" | "transcribing" | "done">("idle");
   const [rightChState, setRightChState] = useState<"idle" | "extracting" | "transcribing" | "done">("idle");
 
+  const [pendingComplete, setPendingComplete] = useState<{
+    transcript: TranscriptEntry[];
+    duration: number;
+    fps: number;
+    videoPath: string;
+    stereo?: boolean;
+  } | null>(null);
+
   const [pickerError, setPickerError] = useState<string | null>(null);
+
+  const downloadTranscriptTxt = (transcript: TranscriptEntry[], stereo: boolean) => {
+    const lines = transcript.map((entry, i) => {
+      const spk = getUtteranceSpeaker(entry.words);
+      const label = stereo
+        ? (spk === 0 ? "Host" : spk === 1 ? "Caller" : spk != null ? `Speaker ${spk}` : "Speaker")
+        : (spk != null ? `Speaker ${spk}` : "Speaker");
+      return `[${i}] ${label}: ${entry.text.trim()}`;
+    });
+    const blob = new Blob([`## Transcript\n${lines.join("\n")}`], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "transcript.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const openNativePicker = async (type: "xml" | "video") => {
     setPickerError(null);
@@ -141,8 +175,7 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
               const d = typeof msg.duration === "number" && msg.duration > 0 ? msg.duration : t.length > 0 ? t[t.length - 1].end : 0;
               const f = typeof msg.fps === "number" && msg.fps > 0 ? msg.fps : 30;
               setTxStatusText(`Done — ${t.length} utterances, ${formatTime(d)}`);
-              // Go straight to LLM edit — no segmentation step
-              onComplete(t, d, f, videoPath, stereo || undefined);
+              setPendingComplete({ transcript: t, duration: d, fps: f, videoPath, stereo: stereo || undefined });
             }
           } catch { /* ignore non-JSON */ }
         }
@@ -314,6 +347,53 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
               {txStatus === "error" && txError && (
                 <div className="text-red-400 text-sm mt-2 p-3 bg-red-950/20 border border-red-900/30 rounded-lg">{txError}</div>
               )}
+            </div>
+          )}
+
+          {txStatus === "done" && pendingComplete && (
+            <div className="rounded-xl border border-neutral-800 bg-neutral-950 overflow-hidden mb-4">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800 bg-neutral-900">
+                <span className="text-xs font-medium text-neutral-400">Transcript</span>
+                <span className="text-xs text-neutral-600">{pendingComplete.transcript.length} utterances</span>
+              </div>
+              <div className="p-3 space-y-2 overflow-y-auto" style={{ maxHeight: "360px" }}>
+                {pendingComplete.transcript.map((entry, i) => {
+                  const spk = getUtteranceSpeaker(entry.words);
+                  const label = isStereo
+                    ? (spk === 0 ? "Host" : spk === 1 ? "Caller" : spk != null ? `Speaker ${spk}` : "Speaker")
+                    : spk != null ? `Speaker ${spk}` : "Speaker";
+                  const isRight = label !== "Host";
+                  return (
+                    <div key={i} className={`flex flex-col gap-0.5 ${isRight ? "items-end" : "items-start"}`}>
+                      <span className="text-[9px] text-neutral-600 px-1">{label}</span>
+                      <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                        isRight
+                          ? "bg-violet-600 text-white rounded-br-sm"
+                          : "bg-neutral-700 text-neutral-100 rounded-bl-sm"
+                      }`}>
+                        {entry.text}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {txStatus === "done" && pendingComplete && (
+            <div className="flex gap-3 mt-4 mb-4">
+              <button
+                onClick={() => downloadTranscriptTxt(pendingComplete.transcript, pendingComplete.stereo ?? false)}
+                className="flex-1 text-xs px-4 py-2 rounded-lg border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
+              >
+                Download TXT
+              </button>
+              <button
+                onClick={() => onComplete(pendingComplete.transcript, pendingComplete.duration, pendingComplete.fps, pendingComplete.videoPath, pendingComplete.stereo)}
+                className="flex-1 text-xs px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors"
+              >
+                Continue to Edit →
+              </button>
             </div>
           )}
 

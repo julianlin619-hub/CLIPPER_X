@@ -42,10 +42,6 @@ export interface EditableWord {
   speaker?: number | null;
   /** Propagated from LineDecision.fragmentWarning — marks the first word of a potentially mid-sentence utterance. */
   fragmentWarning?: boolean;
-  /** Set by repairBoundaryFragments when the gap was too large to auto-merge — editor should review. */
-  boundaryWarning?: boolean;
-  /** Set by assembly coherence validation — human editor should review this clip. */
-  coherenceWarning?: boolean;
   /** Set when this word belongs to a user-selected hook or payoff anchor — cannot be removed. */
   anchored?: boolean;
 /** LLM rationale for this word's utterance decision, propagated to the first word of each utterance. */

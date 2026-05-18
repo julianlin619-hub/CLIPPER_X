@@ -12,14 +12,48 @@ function getUtteranceSpeaker(words: WordTiming[] | undefined): number | null {
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
+const EDIT_DECISIONS_TOOL = {
+  name: "submit_edit_decisions" as const,
+  description:
+    "Submit the per-utterance editing decisions for the transcript. Every utterance index must have exactly one decision.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      decisions: {
+        type: "array" as const,
+        description: "One decision per transcript utterance, in index order.",
+        items: {
+          type: "object" as const,
+          properties: {
+            index: {
+              type: "integer" as const,
+              description: "The utterance index from the transcript.",
+            },
+            action: {
+              type: "string" as const,
+              enum: ["KEEP", "REMOVE", "TRIM"],
+              description: "KEEP the utterance as-is, REMOVE it entirely, or TRIM it to the provided text.",
+            },
+            trimmed_text: {
+              type: "string" as const,
+              description: "The trimmed text using ONLY words from the original utterance. Required when action is TRIM.",
+            },
+          },
+          required: ["index", "action"],
+        },
+      },
+    },
+    required: ["decisions"],
+  },
+};
+
 const anthropic = new Anthropic();
 
 export async function POST(req: NextRequest) {
-  const { transcript, prompt, speakerMap, temperature } = await req.json() as {
+  const { transcript, prompt, speakerMap } = await req.json() as {
     transcript: TranscriptEntry[];
     prompt: string;
-    speakerMap?: Record<string, string>; // JSON keys are always strings
-    temperature?: number;
+    speakerMap?: Record<string, string>;
   };
 
   if (!transcript || !prompt) {
@@ -29,10 +63,6 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const systemPrompt = prompt;
-
-  // Build numbered utterance list (same format the DEFAULT_EDIT_PROMPT expects)
-  // JSON serialization turns numeric keys to strings, so we re-parse them.
   const resolvedMap: SpeakerMap | undefined = speakerMap
     ? Object.fromEntries(Object.entries(speakerMap).map(([k, v]) => [Number(k), v]))
     : undefined;
@@ -49,26 +79,31 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join("\n");
 
-  const userMessage = `## Transcript\n${lineList}`;
+  const userMessage = `<transcript>\n${lineList}\n</transcript>`;
 
-  // Stream Claude's structured decision response to the client
+  const role =
+    "You are a short-form content editor that is able to identify and extract the strongest clips from raw transcripts — prioritizing hooks, emotional peaks, and high-retention storytelling.";
+  const systemPrompt = `${role}\n\n${prompt}`;
+
   const claudeStream = anthropic.messages.stream({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 8192,
-    temperature: temperature ?? 0.3,
+    model: "claude-sonnet-4-6",
+    max_tokens: 32000,
     system: systemPrompt,
+    tools: [EDIT_DECISIONS_TOOL],
+    tool_choice: { type: "tool", name: "submit_edit_decisions" },
     messages: [{ role: "user", content: userMessage }],
   });
 
+  // Stream the tool call's JSON input to the client as it's generated
   const readable = new ReadableStream({
     async start(controller) {
       try {
         for await (const chunk of claudeStream) {
           if (
             chunk.type === "content_block_delta" &&
-            chunk.delta.type === "text_delta"
+            chunk.delta.type === "input_json_delta"
           ) {
-            controller.enqueue(new TextEncoder().encode(chunk.delta.text));
+            controller.enqueue(new TextEncoder().encode(chunk.delta.partial_json));
           }
         }
       } catch (err) {
