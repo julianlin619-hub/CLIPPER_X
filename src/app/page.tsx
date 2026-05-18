@@ -7,6 +7,7 @@ import {
   LineDecision,
   EditableWord,
   SpeakerMap,
+  Source,
 } from "@/lib/types";
 import { computeFinalClips } from "@/lib/export";
 import { autoDetectSpeakers } from "@/lib/speaker-utils";
@@ -19,29 +20,21 @@ import ExportStep from "@/components/export-step";
 
 export default function Home() {
   const [step, setStep] = useState<AppStep>("browse");
-  const [filePath, setFilePath] = useState("");
-  const [fileName, setFileName] = useState("");
+  const [source, setSource] = useState<Source | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [duration, setDuration] = useState(0);
-  const [fps, setFps] = useState(30);
   const [speakerMap, setSpeakerMap] = useState<SpeakerMap>({});
   const [versionWords, setVersionWords] = useState<EditableWord[][]>([[]]);
-  const [fcpxmlPath, setFcpxmlPath] = useState<string>("");
+
+  const primary = source?.angles.find((a) => a.audioSource) ?? source?.angles[0];
+  const fileName = primary ? (primary.filePath.split("/").pop() || primary.filePath) : "";
 
   const handleTranscribeComplete = (
     t: TranscriptEntry[],
-    d: number,
-    frameRate: number = 30,
-    videoPath: string = "",
+    src: Source,
     stereo?: boolean
   ) => {
-    if (videoPath) {
-      setFilePath(videoPath);
-      setFileName(videoPath.split("/").pop() || videoPath);
-    }
+    setSource(src);
     setTranscript(t);
-    setDuration(d);
-    setFps(frameRate);
     if (stereo) {
       setSpeakerMap({ 0: "Host", 1: "Caller" });
     } else {
@@ -107,42 +100,33 @@ export default function Home() {
       {/* Content */}
       <div className="max-w-5xl mx-auto px-6 py-8">
         {step === "browse" && (
-          <FileBrowser onComplete={handleTranscribeComplete} fcpxmlPath={fcpxmlPath} onFcpxmlSelected={setFcpxmlPath} />
+          <FileBrowser onComplete={handleTranscribeComplete} />
         )}
 
         {step === "prompt" && (
           <PromptStep
             transcript={transcript}
-
             speakerMap={speakerMap}
             onComplete={handlePromptComplete}
           />
         )}
 
         {step === "edit" && (
-          <>
-            <VideoEditor
-              words={versionWords[0] ?? []}
-              onChange={(updated) =>
-                setVersionWords([updated])
-              }
-              onContinue={() => setStep("export")}
-              videoSrc={filePath ? `/api/video?path=${encodeURIComponent(filePath)}` : undefined}
-              fileName={fileName}
-              duration={duration}
-            />
-          </>
+          <VideoEditor
+            words={versionWords[0] ?? []}
+            onChange={(updated) => setVersionWords([updated])}
+            onContinue={() => setStep("export")}
+            videoSrc={primary ? `/api/video?path=${encodeURIComponent(primary.filePath)}` : undefined}
+            fileName={fileName}
+            duration={source?.duration ?? 0}
+          />
         )}
 
-        {step === "export" && (
+        {step === "export" && source && (
           <ExportStep
             versionWords={versionWords}
-            fileName={fileName}
-            filePath={filePath}
-            fps={fps}
-            duration={duration}
+            source={source}
             transcript={transcript}
-            fcpxmlPath={fcpxmlPath}
             speakerMap={speakerMap}
           />
         )}

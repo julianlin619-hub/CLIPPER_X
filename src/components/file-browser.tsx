@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { TranscriptEntry, WordTiming } from "@/lib/types";
+import { TranscriptEntry, WordTiming, Source } from "@/lib/types";
 
 function getUtteranceSpeaker(words: WordTiming[] | undefined): number | null {
   const counts = new Map<number, number>();
@@ -17,13 +17,9 @@ function getUtteranceSpeaker(words: WordTiming[] | undefined): number | null {
 interface Props {
   onComplete: (
     transcript: TranscriptEntry[],
-    duration: number,
-    fps: number,
-    videoPath: string,
+    source: Source,
     stereo?: boolean
   ) => void;
-  fcpxmlPath: string;
-  onFcpxmlSelected: (path: string) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -36,12 +32,12 @@ function formatTime(seconds: number): string {
 
 type Phase = "browse" | "transcribing";
 type TxStatus = "extracting_audio" | "chunking_audio" | "transcribing" | "done" | "error";
-type Mode = "single" | "multicam";
 
-export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }: Props) {
-  const [videoPath, setVideoPath] = useState("");
-  const [videoName, setVideoName] = useState("");
-  const [mode, setMode] = useState<Mode>("single");
+export default function FileBrowser({ onComplete }: Props) {
+  const [aCamPath, setACamPath] = useState("");
+  const [aCamName, setACamName] = useState("");
+  const [bCamPath, setBCamPath] = useState("");
+  const [bCamName, setBCamName] = useState("");
 
   const [phase, setPhase] = useState<Phase>("browse");
 
@@ -58,7 +54,6 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
     transcript: TranscriptEntry[];
     duration: number;
     fps: number;
-    videoPath: string;
     stereo?: boolean;
   } | null>(null);
 
@@ -81,18 +76,20 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
     URL.revokeObjectURL(url);
   };
 
-  const openNativePicker = async (type: "xml" | "video") => {
+  const pickVideo = async (target: "A" | "B") => {
     setPickerError(null);
     try {
-      const res = await fetch(`/api/native-pick?type=${type}`);
+      const res = await fetch(`/api/native-pick?type=video`);
       const data = await res.json();
       if (data.cancelled) return;
       if (data.error) { setPickerError(data.error); return; }
-      if (type === "xml") {
-        onFcpxmlSelected(data.path);
+      const name = data.path.split("/").pop() || data.path;
+      if (target === "A") {
+        setACamPath(data.path);
+        setACamName(name);
       } else {
-        setVideoPath(data.path);
-        setVideoName(data.path.split("/").pop() || data.path);
+        setBCamPath(data.path);
+        setBCamName(name);
       }
     } catch (e: unknown) {
       setPickerError(e instanceof Error ? e.message : "Picker failed");
@@ -110,7 +107,7 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
       const res = await fetch("/api/transcribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filePath: videoPath }),
+        body: JSON.stringify({ filePath: aCamPath }),
       });
       if (!res.body) throw new Error("No response stream");
 
@@ -175,7 +172,7 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
               const d = typeof msg.duration === "number" && msg.duration > 0 ? msg.duration : t.length > 0 ? t[t.length - 1].end : 0;
               const f = typeof msg.fps === "number" && msg.fps > 0 ? msg.fps : 30;
               setTxStatusText(`Done — ${t.length} utterances, ${formatTime(d)}`);
-              setPendingComplete({ transcript: t, duration: d, fps: f, videoPath, stereo: stereo || undefined });
+              setPendingComplete({ transcript: t, duration: d, fps: f, stereo: stereo || undefined });
             }
           } catch { /* ignore non-JSON */ }
         }
@@ -186,7 +183,18 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
     }
   };
 
-  const canTranscribe = mode === "single" ? !!videoPath : !!(videoPath && fcpxmlPath);
+  const canTranscribe = !!aCamPath;
+
+  const buildSource = (duration: number, fps: number): Source => ({
+    angles: bCamPath
+      ? [
+          { id: "A", filePath: aCamPath, audioSource: true },
+          { id: "B", filePath: bCamPath, audioSource: false },
+        ]
+      : [{ id: "A", filePath: aCamPath, audioSource: true }],
+    duration,
+    fps,
+  });
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -196,69 +204,52 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
           <div className="mb-8">
             <h2 className="text-2xl font-bold mb-1">Select &amp; Transcribe</h2>
             <p className="text-neutral-400 text-sm">
-              {mode === "single"
-                ? "Select your video file to transcribe and edit."
-                : "Select both inputs, then transcribe. Host and caller are identified separately."}
+              Pick Camera A (required). Optionally add Camera B for a stacked dual-cam edit.
             </p>
           </div>
 
-          {mode === "single" ? (
-            <div className={`rounded-xl border-2 p-4 mb-6 transition-colors ${videoPath ? "border-emerald-500 bg-emerald-950/30" : "border-dashed border-neutral-700 bg-neutral-900/30"}`}>
+          <div className="space-y-3 mb-6">
+            <div className={`rounded-xl border-2 p-4 transition-colors ${aCamPath ? "border-emerald-500 bg-emerald-950/30" : "border-dashed border-neutral-700 bg-neutral-900/30"}`}>
               <div className="flex items-start justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Video File</span>
-                {videoPath && <button onClick={() => { setVideoPath(""); setVideoName(""); }} className="text-neutral-500 hover:text-neutral-300 text-xs">✕</button>}
+                <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Camera A · required</span>
+                {aCamPath && <button onClick={() => { setACamPath(""); setACamName(""); }} className="text-neutral-500 hover:text-neutral-300 text-xs">✕</button>}
               </div>
-              <p className="text-sm font-semibold text-white mb-1">MP4 / MOV</p>
-              <p className="text-xs text-neutral-500 mb-3">Single camera video file</p>
-              {videoPath ? (
-                <div className="flex items-center gap-2 mb-3"><span className="text-lg">🎬</span><span className="text-xs text-emerald-300 font-mono truncate">{videoName}</span></div>
+              <p className="text-sm font-semibold text-white mb-1">Primary camera</p>
+              <p className="text-xs text-neutral-500 mb-3">Audio source — transcription runs on this file</p>
+              {aCamPath ? (
+                <div className="flex items-center gap-2 mb-3"><span className="text-lg">🎬</span><span className="text-xs text-emerald-300 font-mono truncate">{aCamName}</span></div>
               ) : (
                 <div className="flex items-center gap-2 text-neutral-600 mb-3"><span className="text-lg">🎬</span><span className="text-xs">No file selected</span></div>
               )}
-              <Button size="sm" variant="outline" onClick={() => openNativePicker("video")}
+              <Button size="sm" variant="outline" onClick={() => pickVideo("A")}
                 className="w-full text-xs border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300">
                 Browse...
               </Button>
             </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className={`rounded-xl border-2 p-4 transition-colors ${fcpxmlPath ? "border-violet-500 bg-violet-950/30" : "border-dashed border-neutral-700 bg-neutral-900/30"}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Input 1</span>
-                  {fcpxmlPath && <button onClick={() => onFcpxmlSelected("")} className="text-neutral-500 hover:text-neutral-300 text-xs">✕</button>}
-                </div>
-                <p className="text-sm font-semibold text-white mb-1">Multi-Cam XML</p>
-                <p className="text-xs text-neutral-500 mb-3">All cameras + final audio track</p>
-                {fcpxmlPath ? (
-                  <div className="flex items-center gap-2 mb-3"><span className="text-lg">📋</span><span className="text-xs text-violet-300 font-mono truncate">{fcpxmlPath.split("/").pop()}</span></div>
-                ) : (
-                  <div className="flex items-center gap-2 text-neutral-600 mb-3"><span className="text-lg">📋</span><span className="text-xs">No file selected</span></div>
-                )}
-                <Button size="sm" variant="outline" onClick={() => openNativePicker("xml")}
-                  className="w-full text-xs border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300">
-                  Browse...
-                </Button>
-              </div>
 
-              <div className={`rounded-xl border-2 p-4 transition-colors ${videoPath ? "border-emerald-500 bg-emerald-950/30" : "border-dashed border-neutral-700 bg-neutral-900/30"}`}>
+            {bCamPath ? (
+              <div className="rounded-xl border-2 border-violet-500 bg-violet-950/30 p-4 transition-colors">
                 <div className="flex items-start justify-between mb-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Input 2</span>
-                  {videoPath && <button onClick={() => { setVideoPath(""); setVideoName(""); }} className="text-neutral-500 hover:text-neutral-300 text-xs">✕</button>}
+                  <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Camera B · optional</span>
+                  <button onClick={() => { setBCamPath(""); setBCamName(""); }} className="text-neutral-500 hover:text-neutral-300 text-xs">✕</button>
                 </div>
-                <p className="text-sm font-semibold text-white mb-1">Final MP4</p>
-                <p className="text-xs text-neutral-500 mb-3">Final video with mixed audio</p>
-                {videoPath ? (
-                  <div className="flex items-center gap-2 mb-3"><span className="text-lg">🎬</span><span className="text-xs text-emerald-300 font-mono truncate">{videoName}</span></div>
-                ) : (
-                  <div className="flex items-center gap-2 text-neutral-600 mb-3"><span className="text-lg">🎬</span><span className="text-xs">No file selected</span></div>
-                )}
-                <Button size="sm" variant="outline" onClick={() => openNativePicker("video")}
+                <p className="text-sm font-semibold text-white mb-1">Secondary camera</p>
+                <p className="text-xs text-neutral-500 mb-3">Stacked above A on lane 1 · video only</p>
+                <div className="flex items-center gap-2 mb-3"><span className="text-lg">🎬</span><span className="text-xs text-violet-300 font-mono truncate">{bCamName}</span></div>
+                <Button size="sm" variant="outline" onClick={() => pickVideo("B")}
                   className="w-full text-xs border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300">
-                  Browse...
+                  Replace...
                 </Button>
               </div>
-            </div>
-          )}
+            ) : (
+              <button
+                onClick={() => pickVideo("B")}
+                className="w-full rounded-xl border border-dashed border-neutral-700 bg-neutral-900/30 hover:bg-neutral-900/60 hover:border-neutral-500 px-4 py-3 text-xs text-neutral-400 transition-colors"
+              >
+                + Add Camera B (optional)
+              </button>
+            )}
+          </div>
 
           {pickerError && (
             <div className="text-red-400 text-xs mb-4 p-3 bg-red-950/20 border border-red-900/30 rounded-lg">{pickerError}</div>
@@ -270,26 +261,8 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
               disabled={!canTranscribe}
               className="w-full bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-30 disabled:cursor-not-allowed font-semibold"
             >
-              {canTranscribe ? "Transcribe →" : mode === "single" ? "Select a video to transcribe" : "Select both files to transcribe"}
+              {canTranscribe ? "Transcribe →" : "Select Camera A to transcribe"}
             </Button>
-          </div>
-
-          <div className="flex items-center gap-3 p-3 rounded-lg border border-neutral-800 bg-neutral-900/40">
-            <span className="text-xs text-neutral-500 shrink-0">Mode:</span>
-            <div className="flex gap-1 flex-1">
-              <button
-                onClick={() => { setMode("single"); onFcpxmlSelected(""); }}
-                className={`flex-1 text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${mode === "single" ? "bg-neutral-700 text-white" : "text-neutral-500 hover:text-neutral-300"}`}
-              >
-                Single Camera
-              </button>
-              <button
-                onClick={() => setMode("multicam")}
-                className={`flex-1 text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${mode === "multicam" ? "bg-neutral-700 text-white" : "text-neutral-500 hover:text-neutral-300"}`}
-              >
-                Multi-Camera
-              </button>
-            </div>
           </div>
         </>
       )}
@@ -389,7 +362,11 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
                 Download TXT
               </button>
               <button
-                onClick={() => onComplete(pendingComplete.transcript, pendingComplete.duration, pendingComplete.fps, pendingComplete.videoPath, pendingComplete.stereo)}
+                onClick={() => onComplete(
+                  pendingComplete.transcript,
+                  buildSource(pendingComplete.duration, pendingComplete.fps),
+                  pendingComplete.stereo,
+                )}
                 className="flex-1 text-xs px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors"
               >
                 Continue to Edit →
@@ -397,15 +374,15 @@ export default function FileBrowser({ onComplete, fcpxmlPath, onFcpxmlSelected }
             </div>
           )}
 
-          <div className={`grid gap-3 text-xs text-neutral-500 ${mode === "multicam" ? "grid-cols-2" : "grid-cols-1"}`}>
-            {mode === "multicam" && (
+          <div className={`grid gap-3 text-xs text-neutral-500 ${bCamPath ? "grid-cols-2" : "grid-cols-1"}`}>
+            <div className="rounded-lg border border-neutral-800 px-3 py-2 flex items-center gap-2">
+              <span>🎬</span><span className="truncate font-mono">{aCamName}</span>
+            </div>
+            {bCamPath && (
               <div className="rounded-lg border border-neutral-800 px-3 py-2 flex items-center gap-2">
-                <span>📋</span><span className="truncate font-mono">{fcpxmlPath.split("/").pop()}</span>
+                <span>🎬</span><span className="truncate font-mono">{bCamName}</span>
               </div>
             )}
-            <div className="rounded-lg border border-neutral-800 px-3 py-2 flex items-center gap-2">
-              <span>🎬</span><span className="truncate font-mono">{videoName}</span>
-            </div>
           </div>
         </>
       )}

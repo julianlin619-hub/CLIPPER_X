@@ -1,4 +1,5 @@
 import { getFrameTimeFormat } from "@/lib/timecode";
+import { Source } from "@/lib/types";
 
 function escapeXml(s: string): string {
   return s
@@ -9,32 +10,41 @@ function escapeXml(s: string): string {
     .replace(/'/g, "&apos;");
 }
 
-/**
- * Generate FCPXML 1.8 from kept segments.
- * Uses simple flat <asset-clip> elements — no compound clip wrappers.
- * Ported from OLDER project where this approach worked reliably.
- */
 function sanitizeRole(label: string): string {
   return label.replace(/[^a-zA-Z0-9_]/g, "_").replace(/^_+|_+$/g, "") || "track";
 }
 
+function fileUrl(absPath: string): string {
+  return `file://${absPath.startsWith("/") ? "" : "/"}${escapeXml(absPath)}`;
+}
+
+/**
+ * Generate FCPXML 1.8 from kept segments.
+ *
+ * A-only (source.angles.length === 1): flat <asset-clip> spine — output is
+ * byte-identical to the pre-refactor single-cam path.
+ *
+ * A+B (source.angles.length === 2): primary cam (audioSource:true) on the
+ * spine; secondary cam as a lane-1 connected <asset-clip> child per segment.
+ * Secondary has no <audio-channel-source> — only primary's audio plays.
+ */
 export function generateFCPXML(
   segments: { start: number; end: number; text: string }[],
-  sourceName: string,
-  duration: number,
-  fps: number = 30,
-  sourceFilePath?: string,
+  source: Source,
   speakerLabels?: [string, string]
 ): string {
+  const primary = source.angles.find((a) => a.audioSource) ?? source.angles[0];
+  const secondary = source.angles.find((a) => !a.audioSource);
+  const { duration, fps } = source;
+
   const { frameDuration, frameNum, frameDenom } = getFrameTimeFormat(fps);
   const ch1Role = `dialogue.${sanitizeRole(speakerLabels?.[0] ?? "Speaker")}`;
   const ch2Role = `dialogue.${sanitizeRole(speakerLabels?.[1] ?? "Guest")}`;
-  const trimmedSource = sourceName.trim();
+
+  const primaryFileName = primary.filePath.split("/").pop() || primary.filePath;
+  const trimmedSource = primaryFileName.trim();
   const cleanName = trimmedSource.replace(/\.\w+$/, "").trim();
-  // Use absolute path if available; file:// URLs require three slashes for absolute paths
-  const srcUrl = sourceFilePath
-    ? `file://${sourceFilePath.startsWith("/") ? "" : "/"}${escapeXml(sourceFilePath)}`
-    : `file://./${escapeXml(trimmedSource)}`;
+  const srcUrl = fileUrl(primary.filePath);
 
   let offsetFrames = 0;
 
@@ -50,9 +60,13 @@ export function generateFCPXML(
 
       offsetFrames += durFrames;
 
+      const bClipLine = secondary
+        ? `\n              <asset-clip ref="r2" lane="1" offset="${offsetStr}" start="${startStr}" duration="${durStr}" />`
+        : "";
+
       return `            <asset-clip ref="r1" offset="${offsetStr}" name="${escapeXml(seg.text.trim().substring(0, 60))}" start="${startStr}" duration="${durStr}" tcFormat="NDF">
               <audio-channel-source srcCh="1" role="${ch1Role}" />
-              <audio-channel-source srcCh="2" role="${ch2Role}" />
+              <audio-channel-source srcCh="2" role="${ch2Role}" />${bClipLine}
               <note>${escapeXml(seg.text)}</note>
             </asset-clip>`;
     })
@@ -62,12 +76,22 @@ export function generateFCPXML(
   const assetDurFrames = Math.ceil(duration * fps);
   const assetDurStr  = `${assetDurFrames * frameNum}/${frameDenom}s`;
 
+  const primaryAssetLine = `    <asset id="r1" name="${escapeXml(cleanName)}" src="${srcUrl}" start="0/${frameDenom}s" duration="${assetDurStr}" hasVideo="1" hasAudio="1" audioSources="2" audioChannels="2" audioRate="48000" format="r0" />`;
+
+  let secondaryAssetLine = "";
+  if (secondary) {
+    const bFileName = secondary.filePath.split("/").pop() || secondary.filePath;
+    const bCleanName = bFileName.trim().replace(/\.\w+$/, "").trim();
+    const bSrcUrl = fileUrl(secondary.filePath);
+    secondaryAssetLine = `\n    <asset id="r2" name="${escapeXml(bCleanName)}" src="${bSrcUrl}" start="0/${frameDenom}s" duration="${assetDurStr}" hasVideo="1" hasAudio="0" format="r0" />`;
+  }
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.8">
   <resources>
     <format id="r0" frameDuration="${frameDuration}" width="1920" height="1080" />
-    <asset id="r1" name="${escapeXml(cleanName)}" src="${srcUrl}" start="0/${frameDenom}s" duration="${assetDurStr}" hasVideo="1" hasAudio="1" audioSources="2" audioChannels="2" audioRate="48000" format="r0" />
+${primaryAssetLine}${secondaryAssetLine}
   </resources>
   <library>
     <event name="${escapeXml(cleanName)}">

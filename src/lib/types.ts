@@ -51,6 +51,23 @@ export interface EditableWord {
 // Speaker name map: Deepgram speaker ID → human-readable label (e.g. "Host", "Guest")
 export type SpeakerMap = Record<number, string>;
 
+// One physical camera file in the recording.
+// Exactly one angle in a Source has audioSource:true — that file's audio is what
+// gets transcribed, and is the only audio routed in the exported FCPXML.
+export interface CamAngle {
+  id: "A" | "B";
+  filePath: string;
+  audioSource: boolean;
+}
+
+// A recording — A-only (single-cam) or A+B (dual-cam). Angles are pre-synced
+// upstream so segment timestamps apply identically to every angle.
+export interface Source {
+  angles: CamAngle[];   // length 1 (A-only) or 2 (A+B)
+  duration: number;
+  fps: number;
+}
+
 // App step flow
 export type AppStep = "browse" | "prompt" | "edit" | "export";
 
