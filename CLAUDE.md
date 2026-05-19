@@ -90,10 +90,8 @@ Pure functions that map a transcript + LLM decisions into editable words and fin
 |-------|---------|
 | `POST /api/transcribe` | Spawns `transcribe.py`, streams SSE |
 | `POST /api/clip-preview` | Streams LLM tool-call JSON |
-| `GET /api/browse` | Filesystem navigation |
 | `GET /api/video` | Video/audio with HTTP range support |
 | `GET /api/native-pick` | macOS native file picker (single video file) |
-| `POST /api/upload` | File upload (used by browser-based flows) |
 
 ## Environment Variables
 
