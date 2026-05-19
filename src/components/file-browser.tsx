@@ -185,7 +185,7 @@ export default function FileBrowser({ onComplete }: Props) {
 
   const canTranscribe = !!aCamPath;
 
-  const buildSource = (duration: number, fps: number): Source => ({
+  const buildSource = (duration: number, fps: number, stereo: boolean): Source => ({
     angles: bCamPath
       ? [
           { id: "A", filePath: aCamPath, audioSource: true },
@@ -194,6 +194,7 @@ export default function FileBrowser({ onComplete }: Props) {
       : [{ id: "A", filePath: aCamPath, audioSource: true }],
     duration,
     fps,
+    audioChannels: stereo ? 2 : 1,
   });
 
   return (
@@ -364,7 +365,7 @@ export default function FileBrowser({ onComplete }: Props) {
               <button
                 onClick={() => onComplete(
                   pendingComplete.transcript,
-                  buildSource(pendingComplete.duration, pendingComplete.fps),
+                  buildSource(pendingComplete.duration, pendingComplete.fps, pendingComplete.stereo ?? false),
                   pendingComplete.stereo,
                 )}
                 className="flex-1 text-xs px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors"

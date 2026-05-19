@@ -66,6 +66,10 @@ export interface Source {
   angles: CamAngle[];   // length 1 (A-only) or 2 (A+B)
   duration: number;
   fps: number;
+  // Channels routed on the primary angle's audio. 2 = channel-isolated stereo
+  // (Host on srcCh=1, Caller on srcCh=2); 1 = mono or cross-talk stereo
+  // downmixed during transcription. Drives FCPXML audio-channel-source emission.
+  audioChannels: 1 | 2;
 }
 
 // App step flow

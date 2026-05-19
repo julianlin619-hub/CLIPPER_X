@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!existsSync(filePath)) {
-    return new Response(JSON.stringify({ error: `File not found: ${filePath}` }), {
+    return new Response(JSON.stringify({ error: "File not found" }), {
       status: 404,
       headers: { "Content-Type": "application/json" },
     });

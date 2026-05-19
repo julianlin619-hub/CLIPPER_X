@@ -22,14 +22,29 @@ export async function GET(req: NextRequest) {
     return new NextResponse("Missing path", { status: 400 });
   }
 
+  // Reject path-traversal segments before any filesystem call. The legitimate
+  // caller is the native picker, which always returns absolute paths.
+  if (filePath.split("/").includes("..")) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
   const ext = path.extname(filePath).toLowerCase();
-  const contentType = MIME_TYPES[ext] ?? "application/octet-stream";
+  const contentType = MIME_TYPES[ext];
+  if (!contentType) {
+    // Only allowlisted media extensions are served — prevents using this route
+    // as a generic file-read primitive (e.g. /etc/passwd) from any local browser.
+    return new NextResponse("Unsupported media type", { status: 415 });
+  }
 
   let stat: fs.Stats;
   try {
     stat = fs.statSync(filePath);
   } catch {
     return new NextResponse("File not found", { status: 404 });
+  }
+
+  if (!stat.isFile()) {
+    return new NextResponse("Not a file", { status: 400 });
   }
 
   const fileSize = stat.size;
